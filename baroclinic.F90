@@ -585,7 +585,7 @@
 
   if(nsteps_run > 1) then
 
-    !dir$ offload_wait target(mic:0)wait(off_sig)
+    !!dir$ offload_wait target(mic:0)wait(off_sig)
 
      !$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(k,n,this_block,iblock) 
      do iblock = 1,nblocks_clinic
@@ -1844,22 +1844,22 @@
  
     !$omp barrier
 
-    if(bid == 1) then
+    !if(bid == 1) then
   
-      if(itsdone == 0) then
-        !dir$ offload_transfer target(mic:0)nocopy(SLX_UNIFIED,SLY_UNIFIED,SF_SUBM_X_UNIFIED,SF_SUBM_Y_UNIFIED,SF_SLX_UNIFIED,SF_SLY_UNIFIED:alloc_if(.true.) free_if(.false.)) &
-        !dir$ nocopy(TX_UNIFIED,TY_UNIFIED,TZ_UNIFIED:alloc_if(.true.) free_if(.false.)) &
-        !dir$ nocopy(UIT_UNIFIED,VIT_UNIFIED,HYXW_UNIFIED,HXYS_UNIFIED,WORKN_PHI :alloc_if(.true.) free_if(.false.) ) &
-        !dir$ in( KAPPA_ISOP_UNIFIED,KAPPA_THIC_UNIFIED,HOR_DIFF_UNIFIED,KAPPA_VERTICAL_UNIFIED : alloc_if(.true.) free_if(.false.) ) &
-        !dir$ in(KAPPA_LATERAL_UNIFIED,HXY_UNIFIED,HYX_UNIFIED,RX_UNIFIED,RY_UNIFIED,RB_UNIFIED,RBR_UNIFIED,KMT_UNIFIED,KMTE_UNIFIED,KMTN_UNIFIED:alloc_if(.true.) free_if(.false.)) &
-        !dir$ in(BUOY_FREQ_SQ_UNIFIED : alloc_if(.true.) free_if(.false.)) &
-        !dir$ in( SIGMA_TOPO_MASK_UNIFIED,DYT_UNIFIED,DXT_UNIFIED,HUS_UNIFIED,HUW_UNIFIED : alloc_if(.true.) free_if(.false.))
-        itsdone = itsdone + 1
-       endif
+      !if(itsdone == 0) then
+        !!dir$ offload_transfer target(mic:0)nocopy(SLX_UNIFIED,SLY_UNIFIED,SF_SUBM_X_UNIFIED,SF_SUBM_Y_UNIFIED,SF_SLX_UNIFIED,SF_SLY_UNIFIED:alloc_if(.true.) free_if(.false.)) &
+        !!dir$ nocopy(TX_UNIFIED,TY_UNIFIED,TZ_UNIFIED:alloc_if(.true.) free_if(.false.)) &
+        !!dir$ nocopy(UIT_UNIFIED,VIT_UNIFIED,HYXW_UNIFIED,HXYS_UNIFIED,WORKN_PHI :alloc_if(.true.) free_if(.false.) ) &
+        !!dir$ in( KAPPA_ISOP_UNIFIED,KAPPA_THIC_UNIFIED,HOR_DIFF_UNIFIED,KAPPA_VERTICAL_UNIFIED : alloc_if(.true.) free_if(.false.) ) &
+        !!dir$ in(KAPPA_LATERAL_UNIFIED,HXY_UNIFIED,HYX_UNIFIED,RX_UNIFIED,RY_UNIFIED,RB_UNIFIED,RBR_UNIFIED,KMT_UNIFIED,KMTE_UNIFIED,KMTN_UNIFIED:alloc_if(.true.) free_if(.false.)) &
+        !!dir$ in(BUOY_FREQ_SQ_UNIFIED : alloc_if(.true.) free_if(.false.)) &
+        !!dir$ in( SIGMA_TOPO_MASK_UNIFIED,DYT_UNIFIED,DXT_UNIFIED,HUS_UNIFIED,HUW_UNIFIED : alloc_if(.true.) free_if(.false.))
+        !itsdone = itsdone + 1
+       !endif
 
 
 
-     endif
+     !endif
  
 
    if(nsteps_run == 1) then
@@ -1885,13 +1885,13 @@
           !dir$ in(max_hor_grid_scale_unified,mix_pass,grav,zgrid_unified,DZT_UNIFIED,partial_bottom_cells,ldiag_cfl,radian,eod_last) &
           !dir$ in(use_const_ah_bkg_srfbl,transition_layer_on)out(WORKN_PHI) &
           !dir$ inout(VDC_UNIFIED,VDC_GM_UNIFIED) &
-          !dir$ nocopy(SLX_UNIFIED,SLY_UNIFIED,SF_SUBM_X_UNIFIED,SF_SUBM_Y_UNIFIED,KAPPA_ISOP_UNIFIED,KAPPA_THIC_UNIFIED,HOR_DIFF_UNIFIED:alloc_if(.true.) free_if(.false.)) &
-          !dir$ nocopy(KAPPA_LATERAL_UNIFIED,SF_SLX_UNIFIED,SF_SLY_UNIFIED,KAPPA_VERTICAL_UNIFIED:alloc_if(.true.) free_if(.false.) ) &
-          !dir$ nocopy(HYX_UNIFIED,HXY_UNIFIED,RX_UNIFIED,RY_UNIFIED : alloc_if(.true.) free_if(.false.)) &
-          !dir$ nocopy(TX_UNIFIED,TY_UNIFIED,TZ_UNIFIED,RB_UNIFIED,RBR_UNIFIED,KMT_UNIFIED,KMTE_UNIFIED,KMTN_UNIFIED : alloc_if(.true.) free_if(.false.) ) &
-          !dir$ nocopy(SIGMA_TOPO_MASK_UNIFIED,UIT_UNIFIED,VIT_UNIFIED:alloc_if(.true.)free_if(.false.)  ) & 
-          !dir$ nocopy(DYT_UNIFIED,DXT_UNIFIED,HYXW_UNIFIED,HXYS_UNIFIED,HUS_UNIFIED,HUW_UNIFIED:alloc_if(.true.) free_if(.false.) ) &
-          !dir$ nocopy(HDTK_BUF,TDTK:alloc_if(.true.) free_if(.false.))signal(off_sig)
+          !dir$ in(SLX_UNIFIED,SLY_UNIFIED,SF_SUBM_X_UNIFIED,SF_SUBM_Y_UNIFIED,KAPPA_ISOP_UNIFIED,KAPPA_THIC_UNIFIED,HOR_DIFF_UNIFIED) &
+          !dir$ in(KAPPA_LATERAL_UNIFIED,SF_SLX_UNIFIED,SF_SLY_UNIFIED,KAPPA_VERTICAL_UNIFIED ) &
+          !dir$ in(HYX_UNIFIED,HXY_UNIFIED,RX_UNIFIED,RY_UNIFIED) &
+          !dir$ in(TX_UNIFIED,TY_UNIFIED,TZ_UNIFIED,RB_UNIFIED,RBR_UNIFIED,KMT_UNIFIED,KMTE_UNIFIED,KMTN_UNIFIED ) &
+          !dir$ in(SIGMA_TOPO_MASK_UNIFIED,UIT_UNIFIED,VIT_UNIFIED  ) & 
+          !dir$ in(DYT_UNIFIED,DXT_UNIFIED,HYXW_UNIFIED,HXYS_UNIFIED,HUS_UNIFIED,HUW_UNIFIED ) &
+          !dir$ in(HDTK_BUF,TDTK)
 
 
                do kk=1,km
