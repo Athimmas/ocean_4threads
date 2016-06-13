@@ -62,7 +62,7 @@
 !
 !-----------------------------------------------------------------------
 
-   real (r8), dimension(km) :: & 
+   real (r8), dimension(km),public :: & 
       tmin, tmax,        &! valid temperature range for level k
       smin, smax,        &! valid salinity    range for level k
       pressz              ! ref pressure (bars) at each level
@@ -206,12 +206,17 @@
 !
 !-----------------------------------------------------------------------
 
-   real (r8), dimension(:), allocatable :: &
+   !dir$ attributes offload:mic :: to
+   !dir$ attributes offload:mic :: so
+   real (r8), dimension(:), allocatable, public :: &
       to,                &! reference temperature for level k
-      so,                &! reference salinity    for level k
-      sigo                ! reference density     for level k
+      so                
+   !dir$ attributes offload:mic :: sigo
+   real (r8), dimension(:), allocatable, public   :: &
+      sigo
 
-   real (r8), dimension(:,:), allocatable :: & 
+   !dir$ attributes offload:mic :: state_coeffs
+   real (r8), dimension(:,:), allocatable, public :: & 
       state_coeffs        ! coefficients for polynomial eos
 
 !-----------------------------------------------------------------------
@@ -246,6 +251,7 @@
 ! !IROUTINE: state
 ! !INTERFACE:
 
+ !dir$ attributes offload:mic :: state
  subroutine state(k, kk, TEMPK, SALTK, this_block, &
                          RHOOUT, RHOFULL, DRHODT, DRHODS)
 
@@ -346,8 +352,9 @@
 
    case (state_range_check)
 
-      call exit_POP(sigAbort,  &
-          '(state) ERROR unsupported option -- must define time flag and use check_time_flag')
+      print *,"'(state) ERROR unsupported option -- must define time flag and use check_time_flag')"
+      !call exit_POP(sigAbort,  &
+      !    '(state) ERROR unsupported option -- must define time flag and use check_time_flag')
 !***  if (time_to_do(freq_opt_nstep, state_range_freq)) then
 
          ib = this_block%ib
@@ -360,7 +367,7 @@
                                k <= KMT(ib:ie,jb:je,bid))
 
          if (out_of_range /= 0)                                      &
-            write(stdout,'(a9,i6,a44,i3)') 'WARNING: ',out_of_range, &
+            write (*,'(a9,i6,a44,i3)'), 'WARNING: ',out_of_range, &
                   'points outside of valid temp range at level ',kk
 
          out_of_range = count((SALTK(ib:ie,jb:je) < smin(kk) .or.   &
@@ -368,7 +375,7 @@
                                k <= KMT(ib:ie,jb:je,bid))
 
          if (out_of_range /= 0)                                      &
-            write(stdout,'(a9,i6,a44,i3)') 'WARNING: ',out_of_range, &
+            write (*,'(a9,i6,a44,i3)'), 'WARNING: ',out_of_range, &
                   'points outside of valid salt range at level ',kk
 
 !***  endif
@@ -408,7 +415,8 @@
 
       SQ  = c1000*SQ
 #ifdef CCSMCOUPLED
-      call shr_vmath_sqrt(SQ, SQR, nx_block*ny_block)
+      !call shr_vmath_sqrt(SQ, SQR, nx_block*ny_block)
+      SQR = sqrt(SQ) 
 #else
       SQR = sqrt(SQ)
 #endif

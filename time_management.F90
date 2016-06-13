@@ -93,7 +93,8 @@
       runid               ,&! an identifier for the run
       dt_option             ! method to determine tracer timestep size
 
-   integer (int_kind) :: &
+   !dir$ attributes offload : mic :: nsteps_total 
+   integer (int_kind), public :: &
       stop_count        ,&! num of stop_option intervals before stop
                           !   OR date (yyyymmdd) at which model stops
       stop_iopt         ,&! integer value for stop_option
@@ -131,8 +132,12 @@
       ice_ts              ,&!   an ice-formation timestep
       sample_qflux_ts       !   time to sample qflux for time avg 
 
+   !dir$ attributes offload:mic :: eod_last
+   logical (log_kind), public :: &! the last timestep was:
+      eod_last              !   at the end of the day
+
+
    logical (log_kind)   :: &! the last timestep was:
-      eod_last            ,&!   at the end of the day
       eom_last            ,&!   at the end of the month
       eoy_last            ,&!   at the end of the year
       midnight_last       ,&!   at midnight
@@ -374,27 +379,30 @@
    logical (log_kind) :: &
       laccel              ! flag for acceleration
 
+   !dir$ attributes offload : mic :: dtu
    real (r8) ::          &
       dt_count          ,&! input count to determine dtt
       dtt               ,&! tracer timestep (sec)
       dtt_input         ,&! tracer timestep (sec) as specified in namelist
                           !   input; may be different from restart value
-      dtu               ,&! momentum timestep (sec)
       dtp               ,&! barotropic timestep (sec)
       c2dtu             ,&!
       c2dtp             ,&!
       c2dtq             ,&!
       dtuxcel           ,&! factor to multiply MOMENTUM timestep
       stepsize          ,&! size of present timestep (sec)
-      stepsize_next       ! size of next timestep (sec)
+      stepsize_next     ,&! size of next timestep (sec)
+      dtu               ! momentum timestep (sec)
 
    real (r8), dimension(km) :: &
       dttxcel           ,&! array for depth-dependent acceleration
-      dt                ,&! time step at each level
       c2dtt             ,&
       dztxcel           ,&
-      dzwxcel
+      dzwxcel           !,&
+      !dt                ! time step at each level
 
+   !dir$ attributes offload:mic :: dt
+   real (r8), public, dimension(km) :: dt
 !-----------------------------------------------------------------------
 !
 !  time-centering and mixing variables
@@ -415,6 +423,7 @@
                           !  (or interval) to coincide with the end of 
                           !  a timestep
 
+   !dir$ attributes offload:mic :: mix_pass
    integer (int_kind) :: &
       tmix_iopt,         &! option for which time mixing to use
       time_mix_freq,     &! frequency of mixing

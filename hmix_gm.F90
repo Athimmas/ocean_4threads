@@ -32,6 +32,7 @@
       use exit_mod
       use registry
       use hmix_gm_submeso_share
+      use omp_lib
 
 #ifdef CCSMCOUPLED
    use shr_sys_mod
@@ -63,29 +64,45 @@
       real (r8), dimension(:), allocatable :: &
          kappa_depth          ! depth dependence for KAPPA 
 
-      real (r8), dimension(:,:,:), allocatable :: &
+      !dir$ attributes offload:mic :: WTOP_ISOP
+      !dir$ attributes offload:mic :: WBOT_ISOP
+      !dir$ attributes offload:mic :: HXYS
+      !dir$ attributes offload:mic :: HYXW
+      !dir$ attributes offload:mic :: RB
+      !dir$ attributes offload:mic :: RBR
+      !dir$ attributes offload:mic :: BTP
+      !dir$ attributes offload:mic :: BL_DEPTH
+      !dir$ attributes offload:mic :: UIT
+      !dir$ attributes offload:mic :: VIT   
+      real (r8), dimension(:,:,:), allocatable ,public :: &
          HYXW, HXYS, &        ! west and south-shifted values of above
          RB,         &        ! Rossby radius
          RBR,        &        ! inverse of Rossby radius
          BTP,        &        ! beta plane approximation
          BL_DEPTH,   &        ! boundary layer depth
-         UIT, VIT,   &        ! work arrays for isopycnal mixing velocities
-         WTOP_ISOP, WBOT_ISOP ! vertical component of isopycnal velocities
+         UIT, VIT             ! work arrays for isopycnal mixing velocities
 
-      real (r8), dimension(:,:,:,:,:,:), allocatable :: &
+      real (r8), dimension(:,:,:), allocatable, public :: WTOP_ISOP, WBOT_ISOP !vertical component of isopycnal velocities
+
+      !dir$ attributes offload:mic :: SF_SLX
+      !dir$ attributes offload:mic :: SF_SLY
+      real (r8), dimension(:,:,:,:,:,:), allocatable ,public :: &
          SF_SLX, SF_SLY       ! components of the merged streamfunction
 
-      real (r8), dimension(:,:,:,:,:), allocatable :: &
+      !dir$ attributes offload:mic :: SLA_SAVE
+      real (r8), dimension(:,:,:,:,:), allocatable , public :: &
          SLA_SAVE             ! isopycnal slopes
 
-      real (r8), dimension(:,:,:,:), allocatable :: &
+      !dir$ attributes offload:mic :: FZTOP
+      real (r8), dimension(:,:,:,:), allocatable,public :: &
          FZTOP                ! vertical flux
 
-      logical (log_kind), dimension(:), allocatable :: &
+      !dir$ attributes offload:mic :: compute_kappa
+      logical (log_kind), dimension(:), allocatable, public :: &
          compute_kappa        ! compute spatially varying coefficients
                               !  this time step?
 
-      logical (log_kind) ::   &
+      logical (log_kind),public ::   &
          diff_tapering,       &   ! different tapering for two diffusivities
          cancellation_occurs, &   ! specified choices for the isopycnal and
                                   !  thickness diffusion coefficients result in 
@@ -109,26 +126,33 @@
 !     coefficients in cm^2/s and KAPPA_LATERAL is not used!
 !
 !-----------------------------------------------------------------------
+      !dir$ attributes offload:mic :: KAPPA_ISOP
+      !dir$ attributes offload:mic :: KAPPA_THIC
+      real (r8), dimension(:,:,:,:,:), allocatable, public :: &
+       KAPPA_ISOP, &      ! 3D isopycnal diffusion coefficient
+                            !  for top and bottom half of a grid cell
+       KAPPA_THIC           ! 3D thickness diffusion coefficient
+                            !  for top and bottom half of a grid cell
 
-      real (r8), dimension(:,:,:,:,:), allocatable :: &
-         KAPPA_ISOP, &      ! 3D isopycnal diffusion coefficient
-                            !  for top and bottom half of a grid cell
-         KAPPA_THIC, &      ! 3D thickness diffusion coefficient
-                            !  for top and bottom half of a grid cell
+      !dir$ attributes offload:mic :: HOR_DIFF
+      real (r8), dimension(:,:,:,:,:), public ,allocatable :: &
          HOR_DIFF           ! 3D horizontal diffusion coefficient
                             !  for top and bottom half of a grid cell
-
-      real (r8), dimension(:,:,:), allocatable :: &
+      
+      !dir$ attributes offload:mic :: KAPPA_LATERAL
+      real (r8), dimension(:,:,:), allocatable ,public :: &
          KAPPA_LATERAL      ! horizontal variation of KAPPA in cm^2/s
 
-      real (r8), dimension(:,:,:,:), allocatable :: &
+      !dir$ attributes offload:mic :: KAPPA_VERTICAL 
+      real (r8), dimension(:,:,:,:), allocatable ,public :: &
          KAPPA_VERTICAL     ! vertical variation of KAPPA (unitless),
                             !  e.g. normalized buoyancy frequency dependent 
                             !  profiles at the tracer grid points
                             !  ( = N^2 / N_ref^2 ) OR a time-independent
                             !  user-specified function
-
-      real (r8), dimension(:,:,:,:), allocatable :: &
+      !dir$ attributes offload:mic :: BUOY_FREQ_SQ
+      !dir$ attributes offload:mic :: SIGMA_TOPO_MASK 
+      real (r8), dimension(:,:,:,:), allocatable, public :: &
          BUOY_FREQ_SQ,    & ! N^2 defined at level interfaces
          SIGMA_TOPO_MASK    ! bottom topography mask used with kappa_type_eg
 
@@ -166,13 +190,17 @@
          kappa_freq_every_time_step = 2, &
          kappa_freq_once_a_day      = 3  
 
-      integer (int_kind) :: &
+      !dir$ attributes offload:mic :: kappa_thic_type
+      !dir$ attributes offload:mic :: kappa_isop_type
+      !dir$ attributes offload:mic :: kappa_freq
+      !dir$ attributes offload:mic :: slope_control  
+      integer (int_kind), public :: &
          kappa_isop_type,   &   ! choice of KAPPA_ISOP
          kappa_thic_type,   &   ! choice of KAPPA_THIC
          kappa_freq,        &   ! frequency of KAPPA computations
          slope_control          ! choice for slope control
 
-      logical (log_kind) ::  &
+      logical (log_kind),public ::  &
          diag_gm_bolus          ! true for diagnostic bolus velocity computation 
 
 !-----------------------------------------------------------------------
@@ -184,11 +212,21 @@
 !
 !-----------------------------------------------------------------------
   
-      logical (log_kind) ::      &
+
+      !dir$ attributes offload:mic :: transition_layer_on
+      !dir$ attributes offload:mic :: use_const_ah_bkg_srfbl
+
+      logical (log_kind),public ::      &
          use_const_ah_bkg_srfbl, & ! see above 
          transition_layer_on       ! control for transition layer parameterization
-                               
-      real (r8) ::      &
+         
+      !dir$ attributes offload:mic :: ah
+      !dir$ attributes offload:mic :: ah_bolus
+      !dir$ attributes offload:mic :: ah_bkg_bottom
+      !dir$ attributes offload:mic :: ah_bkg_srfbl                       
+      !dir$ attributes offload:mic :: slm_r
+      !dir$ attributes offload:mic :: slm_b 
+      real (r8), public ::      &
          ah,            &       ! isopycnal diffusivity
          ah_bolus,      &       ! thickness (GM bolus) diffusivity
          ah_bkg_bottom, &       ! backgroud horizontal diffusivity at k = KMT
@@ -235,7 +273,8 @@
                                 !  ( = 1 for zt, = 2 for zw )
       end type tlt_info
 
-      type (tlt_info) :: &
+      !dir$ attributes offload:mic :: TLT
+      type (tlt_info),public :: &
          TLT                    ! transition layer thickness related fields 
 
 !-----------------------------------------------------------------------
@@ -246,7 +285,8 @@
 !
 !-----------------------------------------------------------------------
 
-      integer (int_kind) :: &
+      !dir$ attributes offload:mic :: tavg_ADVS_ISOP
+      integer (int_kind), public :: &
          tavg_UISOP,        &   ! zonal      isopycnal velocity
          tavg_VISOP,        &   ! meridional isopycnal velocity
          tavg_WISOP,        &   ! vertical   isopycnal velocity
@@ -273,6 +313,14 @@
 
    integer (int_kind) :: &
       timer_nloop         ! main n loop
+
+!-----------------------------------------------------------------------
+!
+!  manual omp timer
+!
+!-----------------------------------------------------------------------
+
+   real (r8) start_time,end_time
 
 !EOC
 !***********************************************************************
@@ -1127,6 +1175,7 @@
 ! !IROUTINE: hdifft_gm
 ! !INTERFACE:
 
+      !dir$ attributes offload:mic :: hdifft_gm 
       subroutine hdifft_gm (k, GTK, TMIX, UMIX, VMIX, tavg_HDIFE_TRACER, &
                             tavg_HDIFN_TRACER, tavg_HDIFB_TRACER, this_block)
 
@@ -1183,7 +1232,7 @@
          bid                 ! local block address for this sub block
 
       real (r8) :: &
-         fz, dz_bottom, factor
+         fz, dz_bottom, factor,fzprev, KMASKprev, WORK3prev, dzbottomprev
 
       real (r8), dimension(nx_block,ny_block) :: &
          CX, CY,                  &
@@ -1208,6 +1257,9 @@
 !
 !-----------------------------------------------------------------------
 
+      !start_time = omp_get_wtime() 
+
+
       bid = this_block%local_id
 
       U_ISOP = c0
@@ -1217,9 +1269,9 @@
       WORK3  = c0
       WORK4  = c0
 
-      if ( .not. implicit_vertical_mix )  &
-        call exit_POP (sigAbort, &
-         'implicit vertical mixing must be used with GM horiz mixing')
+      if ( .not. implicit_vertical_mix )  print *, "Error in hmix_gm if ( .not. implicit_vertical_mix )"
+        !call exit_POP (sigAbort, &
+         !'implicit vertical mixing must be used with GM horiz mixing')
 
       if ( k == 1 ) then
 
@@ -1246,35 +1298,73 @@
       CY = merge(HXY(:,:,bid)*p25, c0, (k <= KMT (:,:,bid))   &
                                  .and. (k <= KMTN(:,:,bid)))
 
+
+
       if ( k == 1 ) then
 
         if ( transition_layer_on ) then
 
           if ( vmix_itype == vmix_type_kpp ) then
 
+            !start_time = omp_get_wtime()
+
             call smooth_hblt ( .false., .true., bid,  &
                                SMOOTH_OUT=TLT%DIABATIC_DEPTH(:,:,bid) )
+
+            !end_time = omp_get_wtime()
+ 
+            !print *,"Smmoth takes ",end_time - start_time  
+
           else
             TLT%DIABATIC_DEPTH(:,:,bid) = zw(k)
           endif
 
+          !start_time = omp_get_wtime()
+
+          !!$OMP PARALLEL DO &
+          !!$OMP DEFAULT(SHARED)PRIVATE(kid,i,j,kk_sub,kk)NUM_THREADS(60)COLLAPSE(3)
           do kk=1,km
             do kk_sub = ktp,kbt
-              kid = kk + kk_sub - 2
-              SLA_SAVE(:,:,kk_sub,kk,bid) = dzw(kid)*sqrt(p5*(       &
-                     (SLX(:,:,1,kk_sub,kk,bid)**2                    &
-                    + SLX(:,:,2,kk_sub,kk,bid)**2)/DXT(:,:,bid)**2   &
-                   + (SLY(:,:,1,kk_sub,kk,bid)**2                    &
-                    + SLY(:,:,2,kk_sub,kk,bid)**2)/DYT(:,:,bid)**2)) &
-                   + eps
+                  do j=1,ny_block
+                     do i=1,nx_block                 
+
+                        kid = kk + kk_sub - 2  
+
+                        SLA_SAVE(i,j,kk_sub,kk,bid) = dzw(kid)*sqrt(p5*( &
+                        (SLX(i,j,1,kk_sub,kk,bid)**2                     &
+                        + SLX(i,j,2,kk_sub,kk,bid)**2)/DXT(i,j,bid)**2   &
+                        + (SLY(i,j,1,kk_sub,kk,bid)**2                   &
+                        + SLY(i,j,2,kk_sub,kk,bid)**2)/DYT(i,j,bid)**2)) &
+                        + eps
+                     
+                     enddo
+                  enddo         
             enddo
           enddo
+          !!$OMP END PARALLEL DO
 
+
+          !end_time = omp_get_wtime()
+
+          !print *,"SLA_SAVE loop time",end_time - start_time 
+
+          !if(my_task == master_task)then   
+
+          !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write",form="unformatted")
+          !write(10),SLA_SAVE
+          !close(10)
+
+          !endif          
+
+          !start_time = omp_get_wtime()
           call transition_layer ( this_block )
+          !end_time = omp_get_wtime()
+
+          !print *,end_time - start_time 
 
         endif
 
-	
+
 
 !-----------------------------------------------------------------------
 !
@@ -1282,8 +1372,19 @@
 !     they depend on the model fields
 !
 !-----------------------------------------------------------------------
-        
-	if ( ( kappa_isop_type == kappa_type_vmhs           .or.    &
+
+
+      !if(my_task == master_task)then
+
+
+         !print *,"Original before"
+         !print*,"KAPPA_THIC_UNIFIED(i,j,ktp,k,bid)",KAPPA_THIC(3,7,ktp,4,bid),nsteps_total
+
+      !endif
+
+       
+ 
+        if ( ( kappa_isop_type == kappa_type_vmhs           .or.    &
                kappa_thic_type == kappa_type_vmhs           .or.    &
                kappa_isop_type == kappa_type_hdgr           .or.    &
                kappa_thic_type == kappa_type_hdgr           .or.    &
@@ -1303,6 +1404,7 @@
         .or. ( kappa_freq == kappa_freq_once_a_day .and. eod_last ) &
         .or. ( nsteps_total == 1 ) ) )  compute_kappa(bid) = .true.
 
+
         if ( compute_kappa(bid) ) then
 
           if ( kappa_isop_type == kappa_type_vmhs        .or.  &
@@ -1310,7 +1412,7 @@
                kappa_isop_type == kappa_type_bfreq_vmhs  .or.  & 
                kappa_thic_type == kappa_type_bfreq_vmhs ) then
 
-            if ( nsteps_total == 1 ) then
+          if ( nsteps_total == 1 ) then
               KAPPA_LATERAL(:,:,bid) = ah
               if ( kappa_isop_type == kappa_type_const )  &
                 KAPPA_LATERAL(:,:,bid) = ah_bolus
@@ -1332,6 +1434,8 @@
                kappa_thic_type == kappa_type_bfreq_dradius )      &
             call kappa_lon_lat_dradius (this_block)
 
+          !start_time = omp_get_wtime()
+
           if ( kappa_isop_type == kappa_type_bfreq          .or.  &
                kappa_thic_type == kappa_type_bfreq          .or.  &
                kappa_isop_type == kappa_type_bfreq_vmhs     .or.  &
@@ -1342,6 +1446,10 @@
                kappa_thic_type == kappa_type_bfreq_dradius )      &
             call buoyancy_frequency_dependent_profile (TMIX, this_block)
 
+            !end_time = omp_get_wtime()
+
+            !print *,"Time at buoy diff is",end_time - start_time
+
           if ( kappa_isop_type == kappa_type_eg  .or.  &
                kappa_thic_type == kappa_type_eg ) &
             call kappa_eg (TMIX, UMIX, VMIX, this_block) 
@@ -1351,12 +1459,23 @@
         endif  ! end of ( compute_kappa ) if statement
 
 
+      !if(my_task == master_task)then
+
+
+         !print *,"Original between"
+         !print*,"KAPPA_THIC_UNIFIED(i,j,ktp,k,bid)",KAPPA_THIC(3,7,ktp,4,bid),nsteps_total
+
+      !endif
+
+
+
 !-----------------------------------------------------------------------
 !
 !     reinitialize the diffusivity coefficients 
 !
 !-----------------------------------------------------------------------
-	
+        !start_time = omp_get_wtime()
+
         if ( kappa_isop_type == kappa_type_const ) then
           KAPPA_ISOP(:,:,:,:,bid) = ah
         elseif ( kappa_isop_type == kappa_type_eg ) then
@@ -1366,13 +1485,22 @@
             enddo
           enddo
         else
+          !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(kk_sub,kk,j,i)NUM_THREADS(60)
           do kk_sub=ktp,kbt
             do kk=1,km
-              KAPPA_ISOP(:,:,kk_sub,kk,bid) =  KAPPA_LATERAL(:,:,bid)  &
-                                         * KAPPA_VERTICAL(:,:,kk,bid)
+               do j=1,ny_block
+                   do i=1,nx_block
+                       KAPPA_ISOP(i,j,kk_sub,kk,bid) =  KAPPA_LATERAL(i,j,bid)  &
+                                                     * KAPPA_VERTICAL(i,j,kk,bid)
+                   enddo
+               enddo  
             enddo
           enddo
         endif
+
+        !end_time = omp_get_wtime()  
+
+        !print *,"Time at KAPPA_ISOP_TYPE",end_time - start_time
 
         if ( .not. use_const_ah_bkg_srfbl )  &
           HOR_DIFF(:,:,ktp,k,bid) = KAPPA_ISOP(:,:,ktp,k,bid) 
@@ -1381,12 +1509,22 @@
           KAPPA_THIC(:,:,:,:,bid) = ah_bolus
         else if ( kappa_thic_type == kappa_type_depth  .or.  &
                   kappa_thic_type == kappa_type_bfreq ) then
-          do kk_sub=ktp,kbt
+
+          !start_time = omp_get_wtime()
+          !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(kk_sub,kk,j,i)NUM_THREADS(60)collapse(3)schedule(dynamic,4)      
+           do kk_sub=ktp,kbt
             do kk=1,km
-              KAPPA_THIC(:,:,kk_sub,kk,bid) =  ah_bolus  &
-                                        * KAPPA_VERTICAL(:,:,kk,bid)
+             do j=1,ny_block
+              do i=1,nx_block
+                 KAPPA_THIC(i,j,kk_sub,kk,bid) =  ah_bolus  &
+                                          * KAPPA_VERTICAL(i,j,kk,bid)
+              enddo
+             enddo
             enddo
-          enddo 
+          enddo
+          !!$OMP END PARALLEL DO
+          !end_time = omp_get_wtime()
+          !print *,"Loop time at kappa_thic_type == kappa_type_const else if is ",end_time - start_time
         else if ( kappa_thic_type == kappa_type_eg ) then
           KAPPA_THIC(:,:,:,:,bid) = KAPPA_ISOP(:,:,:,:,bid)
         else
@@ -1398,13 +1536,34 @@
           enddo
         endif
 
+        !end_time = omp_get_wtime()
+
+        !print *,"First part time is",end_time - start_time
+
+        !if( my_task == master_task) then
+
+        !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write",form="unformatted")
+        !write(10),KAPPA_THIC
+        !close(10)
+
+        !endif 
+
+      !if(my_task == master_task)then
+
+
+         !print *,"Original after"
+         !print*,"KAPPA_THIC_UNIFIED(i,j,ktp,k,bid)",KAPPA_THIC(3,7,ktp,4,bid),nsteps_total
+
+      !endif
+
 
 !-----------------------------------------------------------------------
 !
 !     control slope of isopycnal surfaces or KAPPA
 !
 !-----------------------------------------------------------------------
-	
+        !start_time = omp_get_wtime()
+
         do kk=1,km
 
           kp1 = min(kk+1,km)
@@ -1422,56 +1581,170 @@
 !     ocean surface Large et al (1997), JPO, 27, pp 2418-2447.
 !     WORK1 = ratio between the depth of water parcel and
 !     the vertical displacement of isopycnal surfaces
-!     where the vertical displacement =
+!     where the vertical displacement =/dz_botto/dz_bottomm
 !     Rossby radius * slope of isopycnal surfaces
 !
 !-----------------------------------------------------------------------
 
-            if ( transition_layer_on ) then
-              SLA = SLA_SAVE(:,:,kk_sub,kk,bid)
-            else
-              SLA = dzw(kid)*sqrt(p5*(                               &
-                     (SLX(:,:,1,kk_sub,kk,bid)**2                    & 
-                    + SLX(:,:,2,kk_sub,kk,bid)**2)/DXT(:,:,bid)**2   &
-                   + (SLY(:,:,1,kk_sub,kk,bid)**2                    &
-                    + SLY(:,:,2,kk_sub,kk,bid)**2)/DYT(:,:,bid)**2)) &
-                   + eps
-            endif
+             !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(j,i,dzw,dz_bottom,zt)NUM_THREADS(60)
+             do j=1,ny_block
+                   do i=1,nx_block
 
-            TAPER1 = c1 
-            if ( .not. transition_layer_on ) then
+                       if ( transition_layer_on ) then
+                          SLA(i,j) = SLA_SAVE(i,j,kk_sub,kk,bid)
+                       else
+                          SLA(i,j) = dzw(kid)*sqrt(p5*(                          &
+                                 (SLX(i,j,1,kk_sub,kk,bid)**2                    & 
+                                + SLX(i,j,2,kk_sub,kk,bid)**2)/DXT(i,j,bid)**2   &
+                                + (SLY(i,j,1,kk_sub,kk,bid)**2                   &
+                                + SLY(i,j,2,kk_sub,kk,bid)**2)/DYT(i,j,bid)**2)) &
+                                + eps
+                        endif
 
-              if ( kk == 1 ) then
-                dz_bottom = c0
-              else
-                dz_bottom = zt(kk-1)
-              endif
+                        TAPER1(i,j) = c1 
+                        if ( .not. transition_layer_on ) then
 
-              if (slope_control == slope_control_tanh) then
+                        if ( kk == 1 ) then
+                        dz_bottom = c0
+                        else
+                        dz_bottom = zt(kk-1)
+                        endif
 
-                WORK1 = min(c1,zt(kk)*RBR(:,:,bid)/SLA)
-                TAPER1 = p5*(c1+sin(pi*(WORK1-p5)))
+                        if (slope_control == slope_control_tanh) then
+
+                        WORK1(i,j) = min(c1,zt(kk)*RBR(i,j,bid)/SLA(i,j))
+                        TAPER1(i,j) = p5*(c1+sin(pi*(WORK1(i,j)-p5)))
 
 !     use the Rossby deformation radius tapering
 !     only within the boundary layer
 
-                TAPER1 = merge(TAPER1, c1,  &
-                               dz_bottom <= BL_DEPTH(:,:,bid))
+                        TAPER1(i,j) = merge(TAPER1(i,j), c1,  &
+                               dz_bottom <= BL_DEPTH(i,j,bid))
 
-              else
+                         else
 
 !     sine function is replaced by
 !     function = 4.*x*(1.-abs(x)) for |x|<0.5
 
-                WORK1 = min(c1,zt(kk)*RBR(:,:,bid)/SLA)
-                TAPER1 = (p5+c2*(WORK1-p5)*(c1-abs(WORK1-p5)))
+                         WORK1(i,j) = min(c1,zt(kk)*RBR(i,j,bid)/SLA(i,j))
+                         TAPER1(i,j) = (p5+c2*(WORK1(i,j)-p5)*(c1-abs(WORK1(i,j)-p5)))
 
-                TAPER1 = merge(TAPER1, c1,  &
-                               dz_bottom <= BL_DEPTH(:,:,bid))
+                         TAPER1(i,j) = merge(TAPER1(i,j), c1,  &
+                                  dz_bottom <= BL_DEPTH(i,j,bid))
 
-              endif
+                         endif
 
-            endif
+                         endif
+
+
+!-----------------------------------------------------------------------
+!
+!     control KAPPA for numerical stability
+!
+!-----------------------------------------------------------------------
+!-----------------------------------------------------------------------
+!
+!     methods to control slope
+!
+!-----------------------------------------------------------------------
+      
+                        TAPER2(i,j) = c1
+                        TAPER3(i,j) = c1
+
+
+                         select case (slope_control)
+                         case (slope_control_tanh)
+
+!     method by Danabasoglu & Mcwilliams (1995)
+
+                         TAPER2(i,j) = merge(p5*  &
+                          (c1-tanh(c10*SLA(i,j)/slm_r-c4)), c0, SLA(i,j) < slm_r)
+
+                         if ( diff_tapering ) then
+                          TAPER3(i,j) = merge(p5*  &
+                          (c1-tanh(c10*SLA(i,j)/slm_b-c4)), c0, SLA(i,j) < slm_b)
+                         else
+                          TAPER3(i,j) = TAPER2(i,j)
+                         endif
+
+                         case (slope_control_notanh)
+
+!     similar to DM95 except replacing tanh by
+!     function = x*(1.-0.25*abs(x)) for |x|<2
+!              = sign(x)            for |x|>2
+!     (faster than DM95)
+
+
+                         if (SLA(i,j) > 0.2_r8*slm_r .and. &
+                             SLA(i,j) < 0.6_r8*slm_r) then
+                             TAPER2(i,j) = &
+                             p5*(c1-(2.5_r8*SLA(i,j)/slm_r-c1)*  &
+                             (c4-abs(c10*SLA(i,j)/slm_r-c4)))
+                         else if (SLA(i,j) >= 0.6_r8*slm_r) then
+                             TAPER2(i,j) = c0
+                         endif
+
+
+                         if ( diff_tapering ) then
+
+                           if (SLA(i,j) > 0.2_r8*slm_b .and. &
+                              SLA(i,j) < 0.6_r8*slm_b) then
+                              TAPER3(i,j) = &
+                              p5*(c1-(2.5_r8*SLA(i,j)/slm_b-c1)* &
+                              (c4-abs(c10*SLA(i,j)/slm_b-c4)))
+                           else if (SLA(i,j) >= 0.6_r8*slm_b) then
+                              TAPER3(i,j) = c0
+                         endif
+
+                         else
+                              TAPER3(i,j) = TAPER2(i,j)
+                         endif
+
+                         case (slope_control_clip)
+
+!     slope clipping
+
+                         do n=1,2
+
+                         if (abs(SLX(i,j,n,kk_sub,kk,bid)  &
+                            * dzw(kid) / HUS(i,j,bid)) > slm_r) then
+                            SLX(i,j,n,kk_sub,kk,bid) =             &
+                                        sign(slm_r * HUS(i,j,bid)  &
+                                           * dzwr(kid),            &
+                                        SLX(i,j,n,kk_sub,kk,bid))
+                         endif
+                         enddo
+
+                         do n=1,2
+
+                         if (abs(SLY(i,j,n,kk_sub,kk,bid)  &
+                          * dzw(kid) / HUW(i,j,bid)) > slm_r) then  
+                          SLY(i,j,n,kk_sub,kk,bid) =             &
+                                  sign(slm_r * HUW(i,j,bid)  &
+                                     * dzwr(kid),            &
+                                  SLY(i,j,n,kk_sub,kk,bid))
+                          endif
+                          enddo
+
+                          case (slope_control_Gerd)
+
+!     method by Gerdes et al (1991)
+
+
+                          if (SLA(i,j) > slm_r)  &
+                             TAPER2(i,j) = (slm_r/SLA(i,j))**2
+
+
+                          if (diff_tapering) then
+
+                             if (SLA(i,j) > slm_b)  &
+                                TAPER3(i,j) = (slm_b/SLA(i,j))**2
+
+                             else
+                                TAPER3(i,j) = TAPER2(i,j)
+                             endif
+
+                          end select
 
 !-----------------------------------------------------------------------
 !
@@ -1484,162 +1757,69 @@
 !
 !-----------------------------------------------------------------------
 
-            TAPER2 = c1 
-            TAPER3 = c1 
+                      if ( transition_layer_on ) then
+                           TAPER2(i,j) = merge(c1, TAPER2(i,j), reference_depth(kk_sub) &
+                                                         <= TLT%DIABATIC_DEPTH(i,j,bid))
+                           TAPER3(i,j) = merge(c1, TAPER3(i,j), reference_depth(kk_sub) &
+                                                         <= TLT%DIABATIC_DEPTH(i,j,bid))
+                      endif
 
-            select case (slope_control)
-            case (slope_control_tanh)
+                       if ( transition_layer_on  .and.  use_const_ah_bkg_srfbl ) then
 
-!     method by Danabasoglu & Mcwilliams (1995)
+                           HOR_DIFF(i,j,kk_sub,kk,bid) = ah_bkg_srfbl
 
-              TAPER2 = merge(p5*  &
-                 (c1-tanh(c10*SLA/slm_r-c4)), c0, SLA < slm_r)
+                       else if ( transition_layer_on .and.               &
+                               ( .not. use_const_ah_bkg_srfbl      .or.  &
+                                 kappa_isop_type == kappa_type_eg  .or.  &
+                                 kappa_thic_type == kappa_type_eg ) ) then
 
-              if ( diff_tapering ) then
-                TAPER3 = merge(p5*  &
-                 (c1-tanh(c10*SLA/slm_b-c4)), c0, SLA < slm_b)
-              else
-                TAPER3 = TAPER2
-              endif
+                           HOR_DIFF(i,j,kk_sub,kk,bid) = KAPPA_ISOP(i,j,kk_sub,kk,bid) 
 
-            case (slope_control_notanh)
+                       else
 
-!     similar to DM95 except replacing tanh by
-!     function = x*(1.-0.25*abs(x)) for |x|<2
-!              = sign(x)            for |x|>2
-!     (faster than DM95)
+                       if ( .not. ( kk == 1 .and. kk_sub == ktp ) ) then 
 
-              do j=1,ny_block
-                do i=1,nx_block
-                  if (SLA(i,j) > 0.2_r8*slm_r .and. &
-                      SLA(i,j) < 0.6_r8*slm_r) then
-                    TAPER2(i,j) = &
-                       p5*(c1-(2.5_r8*SLA(i,j)/slm_r-c1)*  &
-                          (c4-abs(c10*SLA(i,j)/slm_r-c4)))
-                  else if (SLA(i,j) >= 0.6_r8*slm_r) then
-                    TAPER2(i,j) = c0
-                  endif
-                enddo
-              enddo
+                          if ( use_const_ah_bkg_srfbl ) then 
+                              HOR_DIFF(i,j,kk_sub,kk,bid) =                                 &
+                                   merge( ah_bkg_srfbl * (c1 - TAPER1(i,j) * TAPER2(i,j))   &
+                                          * KAPPA_VERTICAL(i,j,kk,bid),                     &
+                                           c0, dz_bottom <= BL_DEPTH(i,j,bid) )
+                          else
+                              HOR_DIFF(i,j,kk_sub,kk,bid) =         &
+                              merge( KAPPA_ISOP(i,j,kk_sub,kk,bid)  &
+                               * (c1 - TAPER1(i,j) * TAPER2(i,j)),  &
+                              c0, dz_bottom <= BL_DEPTH(i,j,bid) )
+                          endif
 
-              if ( diff_tapering ) then
-                do j=1,ny_block
-                  do i=1,nx_block
-                    if (SLA(i,j) > 0.2_r8*slm_b .and. &
-                        SLA(i,j) < 0.6_r8*slm_b) then
-                      TAPER3(i,j) = &
-                         p5*(c1-(2.5_r8*SLA(i,j)/slm_b-c1)* &
-                            (c4-abs(c10*SLA(i,j)/slm_b-c4)))
-                    else if (SLA(i,j) >= 0.6_r8*slm_b) then
-                      TAPER3(i,j) = c0
-                    endif
-                  end do
-                end do
-              else
-                TAPER3 = TAPER2
-              endif
+                       endif
 
-            case (slope_control_clip)
+                       endif
 
-!     slope clipping
 
-              do n=1,2
-                do j=1,ny_block
-                  do i=1,nx_block
-                    if (abs(SLX(i,j,n,kk_sub,kk,bid)  &
-                          * dzw(kid) / HUS(i,j,bid)) > slm_r) then
-                      SLX(i,j,n,kk_sub,kk,bid) =             &
-                                  sign(slm_r * HUS(i,j,bid)  &
-                                     * dzwr(kid),            &
-                                  SLX(i,j,n,kk_sub,kk,bid))
-                    endif
-                  enddo
-                enddo
-              enddo
+      !if(my_task == master_task .and. nsteps_total == 6 .and. kk == 2+2 .and. i==3 .and. j==7 .and. kk_sub == ktp)then
 
-              do n=1,2
-                do j=1,ny_block
-                  do i=1,nx_block
-                    if (abs(SLY(i,j,n,kk_sub,kk,bid)  &
-                          * dzw(kid) / HUW(i,j,bid)) > slm_r) then  
-                      SLY(i,j,n,kk_sub,kk,bid) =             &
-                                  sign(slm_r * HUW(i,j,bid)  &
-                                     * dzwr(kid),            &
-                                  SLY(i,j,n,kk_sub,kk,bid))
-                    endif
-                  enddo
-                enddo
-              enddo
 
-            case (slope_control_Gerd)
+         !print *,"Original"
+         !print *,"KAPPA_THIC_UNIFIED(i,j,ktp,k,bid)",KAPPA_THIC(i,j,kk_sub,kk,bid)
+         !print *,"TAPER1(i,j)",TAPER1(i,j)
+         !print *,"TAPER3(i,j)",TAPER3(i,j)
 
-!     method by Gerdes et al (1991)
+      !endif
 
-              do j=1,ny_block
-                do i=1,nx_block
-                  if (SLA(i,j) > slm_r)  &
-                    TAPER2(i,j) = (slm_r/SLA(i,j))**2
-                enddo
-              enddo
 
-              if (diff_tapering) then
-                do j=1,ny_block
-                  do i=1,nx_block
-                    if (SLA(i,j) > slm_b)  &
-                      TAPER3(i,j) = (slm_b/SLA(i,j))**2
-                  enddo
-                enddo
-              else
-                TAPER3 = TAPER2
-              endif
 
-            end select
+                      KAPPA_ISOP(i,j,kk_sub,kk,bid) =  &
+                      TAPER1(i,j) * TAPER2(i,j) * KAPPA_ISOP(i,j,kk_sub,kk,bid)
 
-            if ( transition_layer_on ) then
-              TAPER2 = merge(c1, TAPER2, reference_depth(kk_sub) &
-                                         <= TLT%DIABATIC_DEPTH(:,:,bid))
-              TAPER3 = merge(c1, TAPER3, reference_depth(kk_sub) &
-                                         <= TLT%DIABATIC_DEPTH(:,:,bid))
-            endif
+                      KAPPA_THIC(i,j,kk_sub,kk,bid) =  &
+                      TAPER1(i,j) * TAPER3(i,j) * KAPPA_THIC(i,j,kk_sub,kk,bid)
 
-            if ( transition_layer_on  .and.  use_const_ah_bkg_srfbl ) then
+             
+                   enddo
+             enddo
 
-              HOR_DIFF(:,:,kk_sub,kk,bid) = ah_bkg_srfbl
-
-            else if ( transition_layer_on .and.               &
-                    ( .not. use_const_ah_bkg_srfbl      .or.  &
-                      kappa_isop_type == kappa_type_eg  .or.  &
-                      kappa_thic_type == kappa_type_eg ) ) then
-
-              HOR_DIFF(:,:,kk_sub,kk,bid) = KAPPA_ISOP(:,:,kk_sub,kk,bid) 
-
-            else
-
-              if ( .not. ( kk == 1 .and. kk_sub == ktp ) ) then 
-
-                if ( use_const_ah_bkg_srfbl ) then 
-                  HOR_DIFF(:,:,kk_sub,kk,bid) =                       &
-                       merge( ah_bkg_srfbl * (c1 - TAPER1 * TAPER2)   &
-                              * KAPPA_VERTICAL(:,:,kk,bid),           &
-                              c0, dz_bottom <= BL_DEPTH(:,:,bid) )
-                else
-                  HOR_DIFF(:,:,kk_sub,kk,bid) =                &
-                         merge( KAPPA_ISOP(:,:,kk_sub,kk,bid)  &
-                               * (c1 - TAPER1 * TAPER2),       &
-                              c0, dz_bottom <= BL_DEPTH(:,:,bid) )
-                endif
-
-              endif
-
-            endif
-
-            KAPPA_ISOP(:,:,kk_sub,kk,bid) =  &
-                  TAPER1 * TAPER2 * KAPPA_ISOP(:,:,kk_sub,kk,bid)
-            KAPPA_THIC(:,:,kk_sub,kk,bid) =  &
-                  TAPER1 * TAPER3 * KAPPA_THIC(:,:,kk_sub,kk,bid)
 
           end do  ! end of kk_sub loop
-
 
 !-----------------------------------------------------------------------
 !
@@ -1651,12 +1831,33 @@
 
 !     B.C. at the bottom
 
-          where (kk == KMT(:,:,bid))
-            KAPPA_ISOP(:,:,kbt,kk,bid) = c0
-            KAPPA_THIC(:,:,kbt,kk,bid) = c0
-          end where
+             do j=1,ny_block
+                   do i=1,nx_block
 
+                       if (kk == KMT(i,j,bid)) then
+                          KAPPA_ISOP(i,j,kbt,kk,bid) = c0
+                          KAPPA_THIC(i,j,kbt,kk,bid) = c0
+                       endif
+
+                   enddo
+              enddo
+ 
         enddo              ! end of kk-loop
+
+
+        !end_time = omp_get_wtime()
+        !print *,"Time at big loop is",end_time - start_time
+         
+
+      !if(my_task == master_task)then      
+ 
+       !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write",form="unformatted")
+       !write(10),SF_SLX,SF_SLY,KAPPA_ISOP,KAPPA_THIC,HOR_DIFF
+       !close(10)
+
+      !endif
+
+
 
 !     B.C. at the top
 
@@ -1665,15 +1866,31 @@
 
         FZTOP(:,:,:,bid) = c0        ! zero flux B.C. at the surface
 
+
         if ( transition_layer_on ) then
+
+          !start_time = omp_get_wtime()
+
 
           call merged_streamfunction ( this_block )
 
+
+          !end_time = omp_get_wtime()
+
+          !print *,"Time taken at function1 is ",end_time - start_time
+
+          !start_time = omp_get_wtime()
+
+ 
           call apply_vertical_profile_to_isop_hor_diff ( this_block ) 
+ 
+
+          !end_time = omp_get_wtime()
+ 
+          !print *,"Time taken at function2 is ",end_time - start_time
 
         else
 
-          TLT%DIABATIC_DEPTH(:,:,bid) = c0
           TLT%THICKNESS(:,:,bid)      = c0
           TLT%INTERIOR_DEPTH(:,:,bid) = c0
 
@@ -1707,6 +1924,8 @@
 
         endif
 
+
+
       endif  ! end of k==1 if statement
 
       KMASK = merge(c1, c0, k < KMT(:,:,bid))
@@ -1727,25 +1946,46 @@
       
       if ( k < km ) then
 
-        WORK1 = dzw(k)*KMASK*TAREA_R(:,:,bid)*                &
-                (dz(k  )*p25*KAPPA_ISOP(:,:,kbt,k,  bid)*     &
-              (HYX (:,:,bid)*SLX(:,:,ieast, kbt,k,  bid)**2   &
-             + HYXW(:,:,bid)*SLX(:,:,iwest, kbt,k,  bid)**2   &
-             + HXY (:,:,bid)*SLY(:,:,jnorth,kbt,k,  bid)**2   &
-             + HXYS(:,:,bid)*SLY(:,:,jsouth,kbt,k,  bid)**2)  &
-                +dz(k+1)*p25*KAPPA_ISOP(:,:,ktp,k+1,bid)*     &
-              (HYX (:,:,bid)*SLX(:,:,ieast, ktp,k+1,bid)**2   &
-             + HYXW(:,:,bid)*SLX(:,:,iwest, ktp,k+1,bid)**2   &
-             + HXY (:,:,bid)*SLY(:,:,jnorth,ktp,k+1,bid)**2   &
-             + HXYS(:,:,bid)*SLY(:,:,jsouth,ktp,k+1,bid)**2))
+      do j=1,ny_block
+         do i=1,nx_block
 
-        do n=1,size(VDC,DIM=4)
-          VDC_GM(:,:,k,bid) = WORK1
-          VDC(:,:,k,n,bid) = VDC(:,:,k,n,bid) + WORK1
-        end do
+         WORK1(i,j) = dzw(k)*KMASK(i,j)*TAREA_R(i,j,bid)*      &
+                 (dz(k )*p25*KAPPA_ISOP(i,j,kbt,k,  bid)*      &
+               (HYX (i,j,bid)*SLX(i,j,ieast, kbt,k,  bid)**2   &
+              + HYXW(i,j,bid)*SLX(i,j,iwest, kbt,k,  bid)**2   &
+              + HXY (i,j,bid)*SLY(i,j,jnorth,kbt,k,  bid)**2   &
+              + HXYS(i,j,bid)*SLY(i,j,jsouth,kbt,k,  bid)**2)  &
+                 +dz(k+1)*p25*KAPPA_ISOP(i,j,ktp,k+1,bid)*     &
+               (HYX (i,j,bid)*SLX(i,j,ieast, ktp,k+1,bid)**2   &
+              + HYXW(i,j,bid)*SLX(i,j,iwest, ktp,k+1,bid)**2   &
+              + HXY (i,j,bid)*SLY(i,j,jnorth,ktp,k+1,bid)**2   &
+              + HXYS(i,j,bid)*SLY(i,j,jsouth,ktp,k+1,bid)**2))
+          
+
+              do n=1,size(VDC,DIM=4)
+                 VDC_GM(i,j,k,bid) = WORK1(i,j)
+                 VDC(i,j,k,n,bid) = VDC(i,j,k,n,bid) + WORK1(i,j)
+              end do
+
+          enddo
+      enddo 
+       
 
       end if
 
+      !if(my_task == master_task)then
+
+       !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write",form="unformatted")
+       !write(10),VDC_GM,VDC,WORK1
+       !close(10)
+
+      !endif 
+   
+      !if(my_task == master_task) then
+      !call flush(6)
+      !print *,"in here ar big work1 loop"
+      !call flush(6)
+      !endif 
 !-----------------------------------------------------------------------
 !
 !     check if some horizontal diffusion needs to be added to the
@@ -1754,9 +1994,17 @@
 !-----------------------------------------------------------------------
 
       if ( ah_bkg_bottom /= c0 ) then
-        where ( k == KMT(:,:,bid) ) 
-          HOR_DIFF(:,:,kbt,k,bid) = ah_bkg_bottom
-        endwhere
+ 
+         do j=1,ny_block
+            do i=1,nx_block
+
+             if( k == KMT(i,j,bid)) then
+                  HOR_DIFF(i,j,kbt,k,bid) = ah_bkg_bottom
+             endif 
+ 
+            enddo
+         enddo
+   
       endif
 
 !-----------------------------------------------------------------------
@@ -1767,6 +2015,19 @@
 
       do j=1,ny_block
         do i=1,nx_block-1
+
+        !if(my_task == master_task .and. nsteps_total == 1 .and. k == 1 .and. i == 3 .and. j == 5 .and. n == 1)then
+
+
+             !print *,"Original"
+             !print *,"HOR_DIFF(i,j,ktp,k,bid)",HOR_DIFF(i,j,ktp,k,bid)
+             !print *,"HOR_DIFF(i,j,kbt,k,bid)",HOR_DIFF(i,j,kbt,k,bid)
+             !print *,"HOR_DIFF(i+1,j,ktp,k,bid)",HOR_DIFF(i+1,j,ktp,k,bid)
+             !print *,"HOR_DIFF(i,j,ktp,k,bid)",HOR_DIFF(i+1,j,kbt,k,bid)
+
+         !endif
+
+
           WORK3(i,j) = KAPPA_ISOP(i,  j,ktp,k,bid)  &
                      + HOR_DIFF  (i,  j,ktp,k,bid)  &
                      + KAPPA_ISOP(i,  j,kbt,k,bid)  &
@@ -1791,12 +2052,12 @@
         enddo
       enddo
       
-
 !-----------------------------------------------------------------------
 !
 !     start loop over tracers
 !
 !-----------------------------------------------------------------------
+
 
       kp1 = k + 1
       if ( k == km )  kp1 = k
@@ -1808,8 +2069,6 @@
         dz_bottom = c0
         factor    = c0
       endif
-
-      call timer_start(timer_nloop, block_id=this_block%local_id)
 
       do n = 1,nt
 
@@ -1824,12 +2083,42 @@
         FX(:,:,n) = dz(k) * CX * TX(:,:,k,n,bid) * WORK3
         FY(:,:,n) = dz(k) * CY * TY(:,:,k,n,bid) * WORK4 
 
+
+          !if(my_task == master_task .and. nsteps_total == 1 .and. k == 1 .and. i == 3 .and. j == 5 .and. n == 1)then
+
+
+             !print *,"Original"
+             !print *,"FX(i,j,n)",FX(i,j,n)
+             !print *,"dz_unified",dz(k)
+             !print *,"CX",CX(i,j)
+             !print *,"TX_UNIFIED",TX(i,j,k,n,bid)
+             !print *,"WORK3",WORK3(i,j)
+             !print *,"WORK4",WORK4(i,j)
+
+             !endif
+
+
       end do
 
       if ( .not. cancellation_occurs ) then
 
         do j=1,ny_block
           do i=1,nx_block-1
+
+           !if(my_task == master_task .and. nsteps_total == 6 .and. k == 1 .and. i == 3 .and. j == 7 )then
+
+
+             !print *,"Original"
+             !print *,"dz_unified(k)",dz(k)
+             !print *,"KAPPA_ISOP_UNIFIED(i,j,ktp,k,bid)",KAPPA_ISOP(i,j,ktp,k,bid)
+             !print *,"SLX_UNIFIED(i,j,ieast,ktp,k,bid)",SLX(i,j,ieast,ktp,k,bid)
+             !print *,"KAPPA_ISOP_UNIFIED(i,j,kbt,k,bid)",KAPPA_ISOP(i,j,kbt,k,bid)
+             !print *,"SLX_UNIFIED(i,j,ieast,kbt,k,bid)",SLX(i,j,ieast,kbt,k,bid)
+             !print *,"SF_SLX_UNIFIED(i,j,ieast,ktp,k,bid)",SF_SLX(i,j,ieast,ktp,k,bid)
+
+            !endif
+
+
             WORK1(i,j) = KAPPA_ISOP(i,j,ktp,k,bid)                     &
                          * SLX(i,j,ieast,ktp,k,bid) * dz(k)            &
                          - SF_SLX(i,j,ieast,ktp,k,bid)
@@ -1844,14 +2133,30 @@
                          - SF_SLX(i+1,j,iwest,kbt,k,bid)
           enddo
         enddo
-	
-	do n = 1,nt
 
-          if (n > 2 .and. k < km)  &
-            TZ(:,:,k+1,n,bid) = TMIX(:,:,k  ,n) - TMIX(:,:,k+1,n)
-
+        do n = 1,nt
           do j=1,ny_block
             do i=1,nx_block-1
+
+
+             !if(my_task == master_task .and. nsteps_total == 6 .and. k == 1 .and. i == 3 .and. j == 7 .and. n == 1)then
+
+
+             !print *,"original"
+             !print *,"FX(i,j,n)",FX(i,j,n)
+             !print *,"CX(i,j)",CX(i,j)
+             !print *,"WORK1(i,j)",WORK1(i,j)  
+             !print *,"WORK2(i,j)",WORK2(i,j)
+             !print *,"WORK3(i,j)",WORK3(i,j)
+             !print *,"WORK4(i,j)",WORK4(i,j)
+             !print *,"TZ(i,j)",TZ(i,j,k,n,bid)
+             !print *,"TZ(i,j,kp1)",TZ(i,j,kp1,n,bid)
+             !print *,"TZ(i+1,j)",TZ(i+1,j,k,n,bid)
+             !print *,"TZ(i+1,j,kp1)",TZ(i+1,j,kp1,n,bid) 
+             
+
+             !endif
+
               FX(i,j,n) = FX(i,j,n) - CX(i,j)                          &
                * ( WORK1(i,j) * TZ(i,j,k,n,bid)                        &
                    + WORK2(i,j) * TZ(i,j,kp1,n,bid)                    &
@@ -1884,6 +2189,25 @@
 
           do j=1,ny_block-1
             do i=1,nx_block
+
+                 !if(my_task == master_task .and. nsteps_total == 1 .and. k == 1 .and. i == 4 .and. j == 6 - 1 .and. n == 1)then
+
+                   !print *,"original before"
+                   !print *,"FY(i,j,n) contribution is",FY(i,j,n)
+                   !print *,"CY(i,j,n) contribution is",CY(i,j)
+                   !print *,"WORK1 contribution is",WORK1(i,j)
+                   !print *,"WORK2 contribution is",WORK2(i,j)
+                   !print *,"WORK3 contribution is",WORK3(i,j)
+                   !print *,"WORK4 contribution is",WORK4(i,j)
+                   
+                   !print *,"TZ contribution is",TZ(i,j,k,n,bid) 
+                   !print *,"TZkp1 contribution is",TZ(i,j,kp1,n,bid)
+                   !print *,"TZjp1 contribution is",TZ(i,j+1,k,n,bid)
+                   !print *,"TZJp1kp1 contribution is",TZ(i,j+1,kp1,n,bid)
+
+                  !endif
+
+
               FY(i,j,n) = FY(i,j,n) - CY(i,j)                          &
                * ( WORK1(i,j) * TZ(i,j,k,n,bid)                        &
                    + WORK2(i,j) * TZ(i,j,kp1,n,bid)                    &
@@ -1895,6 +2219,7 @@
         end do
 
       endif
+
 
       do n = 1,nt
 
@@ -1984,21 +2309,105 @@
                enddo
              enddo
 
+              !-------------------------------------------------------!  
+
             do j=this_block%jb,this_block%je
               do i=this_block%ib,this_block%ie
 
+
+               if(k ==1) then
+                 
+                 fzprev = c0  
+                 dzbottomprev = dz(k)
+
+               else
+ 
+                WORK3prev = c0 
+                dzbottomprev = dz(k)    
+
+                WORK3prev = WORK3prev                                 &  !done
+                    + ( dz(k-1) * KAPPA_ISOP(i,j,kbt,k-1,bid)         &
+                    * ( SLX(i,j,ieast ,kbt,k-1 ,bid)                  &
+                       * HYX(i  ,j  ,bid) * TX(i  ,j  ,k-1,n,bid)     &
+                      + SLY(i,j,jnorth,kbt,k-1,bid)                   &
+                       * HXY(i  ,j  ,bid) * TY(i  ,j  ,k-1,n,bid)     &
+                      + SLX(i,j,iwest ,kbt,k-1,bid)                   &
+                       * HYX(i-1,j  ,bid) * TX(i-1,j  ,k-1,n,bid)     &
+                      + SLY(i,j,jsouth,kbt,k-1,bid)                   &
+                       * HXY(i  ,j-1,bid) * TY(i  ,j-1,k-1,n,bid) ) )
+
+
+                WORK3prev = WORK3prev                                 &  !done
+                    + ( SF_SLX(i  ,j  ,ieast ,kbt,k-1,bid)            &
+                       * HYX(i  ,j  ,bid) * TX(i  ,j  ,k-1,n,bid)     &
+                      + SF_SLY(i  ,j  ,jnorth,kbt,k-1,bid)            &
+                       * HXY(i  ,j  ,bid) * TY(i  ,j  ,k-1,n,bid)     &
+                      + SF_SLX(i  ,j  ,iwest ,kbt,k-1,bid)            &
+                       * HYX(i-1,j  ,bid) * TX(i-1,j  ,k-1,n,bid)     &
+                      + SF_SLY(i  ,j  ,jsouth,kbt,k-1,bid)            &
+                       * HXY(i  ,j-1,bid) * TY(i  ,j-1,k-1,n,bid) )
+
+
+
+                WORK3prev = WORK3prev                               &   !done
+                    + ( dzbottomprev * KAPPA_ISOP(i,j,ktp,k,bid)    &
+                    * ( SLX(i  ,j  ,ieast ,ktp,k,bid)               &
+                       * HYX(i  ,j  ,bid) * TX(i  ,j  ,k,n,bid)     &
+                      + SLY(i  ,j  ,jnorth,ktp,k,bid)               &
+                       * HXY(i  ,j  ,bid) * TY(i  ,j  ,k,n,bid)     &
+                      + SLX(i  ,j  ,iwest ,ktp,k,bid)               &
+                       * HYX(i-1,j  ,bid) * TX(i-1,j  ,k,n,bid)     &
+                      + SLY(i  ,j  ,jsouth,ktp,k,bid)               &
+                       * HXY(i  ,j-1,bid) * TY(i  ,j-1,k,n,bid) ) )
+
+
+                 WORK3prev = WORK3prev                          &       !done
+                    + ( c1                                            &
+                    * ( SF_SLX(i  ,j  ,ieast ,ktp,k  ,bid)            &
+                       * HYX(i  ,j  ,bid) * TX(i  ,j  ,k  ,n,bid)     &
+                      + SF_SLY(i  ,j  ,jnorth,ktp,k  ,bid)            &
+                       * HXY(i  ,j  ,bid) * TY(i  ,j  ,k  ,n,bid)     &
+                      + SF_SLX(i  ,j  ,iwest ,ktp,k  ,bid)            &
+                       * HYX(i-1,j  ,bid) * TX(i-1,j  ,k  ,n,bid)     &
+                      + SF_SLY(i  ,j  ,jsouth,ktp,k  ,bid)            &
+                       * HXY(i  ,j-1,bid) * TY(i  ,j-1,k,n,bid) ) )
+
+                 KMASKprev = merge(c1, c0, k-1 < KMT(i,j,bid))
+
+                 fzprev = -KMASKprev * p25 * WORK3prev 
+
+                !-------------------------------------------------------! 
+             
+                endif 
+
+
                 fz = -KMASK(i,j) * p25 * WORK3(i,j)
 
-                GTK(i,j,n) = ( FX(i,j,n) - FX(i-1,j,n)  &
-                             + FY(i,j,n) - FY(i,j-1,n)  &
-                      + FZTOP(i,j,n,bid) - fz )*dzr(k)*TAREA_R(i,j,bid)
+                 !if(my_task == master_task .and. nsteps_total == 1 .and. k == 45 .and. i == 5 .and. j == 10 .and. n == 1 .and. bid == 2)then
 
-                FZTOP(i,j,n,bid) = fz
+                   !print *,"original" 
+                   !print *,"FX(i,j,n) contribution is",FX(i,j,n)
+                   !print *,"FY(i,j,n) contribution is",FY(i,j,n)
+                   !print *,"FX(i-1,j,n) contribution is",FX(i-1,j,n)
+                   !print *,"FY(i,j-1,n) contribution is",FX(i,j-1,n)
+                   !print *,"fzprev",fzprev
+                   !print *,"fz",fz
+                   !print *,"dzr_unified(k)",dzr(k)
+                   !print *,"TAREA_R_UNIFIED(i,j,bid)",TAREA_R(i,j,bid)
+
+
+                  !endif
+
+
+                GTK(i,j,n) = ( FX(i,j,n) - FX(i-1,j,n)  &               !done
+                             + FY(i,j,n) - FY(i,j-1,n)  &
+                      + fzprev - fz )*dzr(k)*TAREA_R(i,j,bid)
+
 
               enddo
             enddo
-
-          else
+        
+          else  !cancellation occurs
 
 !pw loop split to improve performance
 
@@ -2050,18 +2459,70 @@
               enddo
             enddo
 
-          endif
+          endif  !cancellation_occurs
 
         else                 ! k = km
 
           do j=this_block%jb,this_block%je
             do i=this_block%ib,this_block%ie
 
-              GTK(i,j,n) = ( FX(i,j,n) - FX(i-1,j,n)  &
-                           + FY(i,j,n) - FY(i,j-1,n)  &
-                    + FZTOP(i,j,n,bid) )*dzr(k)*TAREA_R(i,j,bid)
+                WORK3prev = c0
 
-              FZTOP(i,j,n,bid) = c0 
+                WORK3prev = WORK3prev                                 &   !done
+                   + ( dz(km-1) * KAPPA_ISOP(i,j,kbt,km-1,bid)         &
+                    * ( SLX(i,j,ieast ,kbt,km-1 ,bid)                  &
+                       * HYX(i  ,j  ,bid) * TX(i  ,j  ,km-1,n,bid)     &
+                      + SLY(i,j,jnorth,kbt,km-1,bid)                   &
+                       * HXY(i  ,j  ,bid) * TY(i  ,j  ,km-1,n,bid)     &
+                      + SLX(i,j,iwest ,kbt,km-1,bid)                   &
+                       * HYX(i-1,j  ,bid) * TX(i-1,j  ,km-1,n,bid)     &
+                      + SLY(i,j,jsouth,kbt,km-1,bid)                   &
+                       * HXY(i  ,j-1,bid) * TY(i  ,j-1,km-1,n,bid) ) )
+    
+
+                WORK3prev = WORK3prev                                 &   !done
+                    + ( SF_SLX(i  ,j  ,ieast ,kbt,km-1,bid)            &
+                       * HYX(i  ,j  ,bid) * TX(i  ,j  ,km-1,n,bid)     &
+                      + SF_SLY(i  ,j  ,jnorth,kbt,km-1,bid)            &
+                       * HXY(i  ,j  ,bid) * TY(i  ,j  ,km-1,n,bid)     &
+                      + SF_SLX(i  ,j  ,iwest ,kbt,km-1,bid)            &
+                       * HYX(i-1,j  ,bid) * TX(i-1,j  ,km-1,n,bid)     &
+                      + SF_SLY(i  ,j  ,jsouth,kbt,km-1,bid)            &
+                       * HXY(i  ,j-1,bid) * TY(i  ,j-1,km-1,n,bid) )
+
+
+                WORK3prev = WORK3prev                           &         !done     
+                    + ( dzbottomprev * KAPPA_ISOP(i,j,ktp,km,bid)    &
+                    * ( SLX(i  ,j  ,ieast ,ktp,km,bid)               &
+                       * HYX(i  ,j  ,bid) * TX(i  ,j  ,km,n,bid)     &
+                      + SLY(i  ,j  ,jnorth,ktp,km,bid)               &
+                       * HXY(i  ,j  ,bid) * TY(i  ,j  ,km,n,bid)     &
+                      + SLX(i  ,j  ,iwest ,ktp,km,bid)               &
+                       * HYX(i-1,j  ,bid) * TX(i-1,j  ,km,n,bid)     &
+                      + SLY(i  ,j  ,jsouth,ktp,km,bid)               &
+                       * HXY(i  ,j-1,bid) * TY(i  ,j-1,km,n,bid) ) )
+
+
+                 WORK3prev = WORK3prev                          &
+                    + ( c1                                             &
+                    * ( SF_SLX(i  ,j  ,ieast ,ktp,km  ,bid)            &
+                       * HYX(i  ,j  ,bid) * TX(i  ,j  ,km  ,n,bid)     &
+                      + SF_SLY(i  ,j  ,jnorth,ktp,km  ,bid)            &
+                       * HXY(i  ,j  ,bid) * TY(i  ,j  ,km  ,n,bid)     &
+                      + SF_SLX(i  ,j  ,iwest ,ktp,km  ,bid)            &
+                       * HYX(i-1,j  ,bid) * TX(i-1,j  ,km  ,n,bid)     &
+                      + SF_SLY(i  ,j  ,jsouth,ktp,km  ,bid)            &
+                       * HXY(i  ,j-1,bid) * TY(i  ,j-1,km,n,bid) ) )
+
+
+                 KMASKprev = merge(c1, c0, km-1 < KMT(i,j,bid))        
+
+                 fzprev = -KMASKprev * p25 * WORK3prev
+
+
+                 GTK(i,j,n) = ( FX(i,j,n) - FX(i-1,j,n)  &
+                              + FY(i,j,n) - FY(i,j-1,n)  &
+                        + fzprev )*dzr(k)*TAREA_R(i,j,bid)
 
             enddo
           enddo
@@ -2075,15 +2536,14 @@
 !-----------------------------------------------------------------------
 
       enddo
-
-      call timer_stop(timer_nloop, block_id=this_block%local_id)
+       
 
 !-----------------------------------------------------------------------
 !
 !     diagnostic computation of the bolus velocities 
 !
 !-----------------------------------------------------------------------
-      
+
       if ( diag_gm_bolus ) then
 
         do j=1,ny_block-1
@@ -2177,143 +2637,143 @@
 !
 !-----------------------------------------------------------------------
 
-      if ( mix_pass /= 1 ) then
+!      if ( mix_pass /= 1 ) then
 
-          call accumulate_tavg_field                      &
-                   (p5 * (KAPPA_ISOP(:,:,ktp,k,bid)    &
-                       +  KAPPA_ISOP(:,:,kbt,k,bid)),  &
-                          tavg_KAPPA_ISOP, bid, k)
+!          call accumulate_tavg_field                      &
+!                   (p5 * (KAPPA_ISOP(:,:,ktp,k,bid)    &
+!                       +  KAPPA_ISOP(:,:,kbt,k,bid)),  &
+!                          tavg_KAPPA_ISOP, bid, k)
 
-          call accumulate_tavg_field                      &
-                   (p5 * (KAPPA_THIC(:,:,ktp,k,bid)    &
-                       +  KAPPA_THIC(:,:,kbt,k,bid)),  &
-                          tavg_KAPPA_THIC, bid, k)
+!          call accumulate_tavg_field                      &
+!                   (p5 * (KAPPA_THIC(:,:,ktp,k,bid)    &
+!                       +  KAPPA_THIC(:,:,kbt,k,bid)),  &
+!                          tavg_KAPPA_THIC, bid, k)
 
-          call accumulate_tavg_field                      &
-                   (p5 * (HOR_DIFF(:,:,ktp,k,bid)      &
-                       +  HOR_DIFF(:,:,kbt,k,bid)),    &
-                          tavg_HOR_DIFF, bid, k)
+!          call accumulate_tavg_field                      &
+!                   (p5 * (HOR_DIFF(:,:,ktp,k,bid)      &
+!                       +  HOR_DIFF(:,:,kbt,k,bid)),    &
+!                          tavg_HOR_DIFF, bid, k)
 
-        if ( transition_layer_on  .and.  k == 1 ) then
+!        if ( transition_layer_on  .and.  k == 1 ) then
 
-            call accumulate_tavg_field (TLT%DIABATIC_DEPTH(:,:,bid),  &
-                                        tavg_DIA_DEPTH, bid, 1)  
+!            call accumulate_tavg_field (TLT%DIABATIC_DEPTH(:,:,bid),  &
+!                                        tavg_DIA_DEPTH, bid, 1)  
 
-            call accumulate_tavg_field (TLT%THICKNESS(:,:,bid),       &
-                                        tavg_TLT, bid, 1)  
+!            call accumulate_tavg_field (TLT%THICKNESS(:,:,bid),       &
+!                                        tavg_TLT, bid, 1)  
 
-            call accumulate_tavg_field (TLT%INTERIOR_DEPTH(:,:,bid),  &
-                                        tavg_INT_DEPTH, bid, 1)  
+!            call accumulate_tavg_field (TLT%INTERIOR_DEPTH(:,:,bid),  &
+!                                        tavg_INT_DEPTH, bid, 1)  
 
-        endif
+!        endif
 
-        if ( diag_gm_bolus ) then
+!        if ( diag_gm_bolus ) then
 
-            call accumulate_tavg_field (U_ISOP, tavg_UISOP, bid, k) 
-            call accumulate_tavg_field (V_ISOP, tavg_VISOP, bid, k) 
-            call accumulate_tavg_field (WTOP_ISOP(:,:,bid), tavg_WISOP,bid, k)
+!            call accumulate_tavg_field (U_ISOP, tavg_UISOP, bid, k) 
+!            call accumulate_tavg_field (V_ISOP, tavg_VISOP, bid, k) 
+!            call accumulate_tavg_field (WTOP_ISOP(:,:,bid), tavg_WISOP,bid, k)
 
-          if (accumulate_tavg_now(tavg_ADVT_ISOP)) then
+!          if (accumulate_tavg_now(tavg_ADVT_ISOP)) then
 
-            WORK1 = p5 * HTE(:,:,bid) * U_ISOP * ( TMIX(:,:,k,1)  &
-                      + eoshift(TMIX(:,:,k,1), dim=1, shift=1) )
-            WORK2 = eoshift(WORK1, dim=1, shift=-1)
-            WORK3 = WORK1 - WORK2
+!            WORK1 = p5 * HTE(:,:,bid) * U_ISOP * ( TMIX(:,:,k,1)  &
+!                      + eoshift(TMIX(:,:,k,1), dim=1, shift=1) )
+!            WORK2 = eoshift(WORK1, dim=1, shift=-1)
+!            WORK3 = WORK1 - WORK2
 
-            WORK1 = p5 * HTN(:,:,bid) * V_ISOP * ( TMIX(:,:,k,1)  &
-                      + eoshift(TMIX(:,:,k,1), dim=2, shift=1) )  
-            WORK2 = eoshift(WORK1, dim=2, shift=-1)
-            WORK3 = WORK3 + WORK1 - WORK2
+!            WORK1 = p5 * HTN(:,:,bid) * V_ISOP * ( TMIX(:,:,k,1)  &
+!                      + eoshift(TMIX(:,:,k,1), dim=2, shift=1) )  
+!            WORK2 = eoshift(WORK1, dim=2, shift=-1)
+!            WORK3 = WORK3 + WORK1 - WORK2
 
-            WORK1 = c0
-            do j=this_block%jb,this_block%je
-              do i=this_block%ib,this_block%ie
-                if ( k <= KMT(i,j,bid) ) then
-                  WORK1(i,j) = - dz(k) * TAREA_R(i,j,bid) * WORK3(i,j)
-                endif
-              enddo
-            enddo
+!            WORK1 = c0
+!            do j=this_block%jb,this_block%je
+!              do i=this_block%ib,this_block%ie
+!                if ( k <= KMT(i,j,bid) ) then
+!                  WORK1(i,j) = - dz(k) * TAREA_R(i,j,bid) * WORK3(i,j)
+!                endif
+!              enddo
+!            enddo
 
-            call accumulate_tavg_field (WORK1, tavg_ADVT_ISOP, bid, k)
+!            call accumulate_tavg_field (WORK1, tavg_ADVT_ISOP, bid, k)
 
-          endif
+!          endif
 
-           if (accumulate_tavg_now(tavg_ADVS_ISOP)) then
+!           if (accumulate_tavg_now(tavg_ADVS_ISOP)) then
 
-            WORK1 = p5 * HTE(:,:,bid) * U_ISOP * ( TMIX(:,:,k,2)  &
-                      + eoshift(TMIX(:,:,k,2), dim=1, shift=1) )
-            WORK2 = eoshift(WORK1, dim=1, shift=-1)
-            WORK3 = WORK1 - WORK2
+!            WORK1 = p5 * HTE(:,:,bid) * U_ISOP * ( TMIX(:,:,k,2)  &
+!                      + eoshift(TMIX(:,:,k,2), dim=1, shift=1) )
+!            WORK2 = eoshift(WORK1, dim=1, shift=-1)
+!            WORK3 = WORK1 - WORK2
 
-            WORK1 = p5 * HTN(:,:,bid) * V_ISOP * ( TMIX(:,:,k,2)  &
-                      + eoshift(TMIX(:,:,k,2), dim=2, shift=1) )
-            WORK2 = eoshift(WORK1, dim=2, shift=-1)
-            WORK3 = WORK3 + WORK1 - WORK2
+!            WORK1 = p5 * HTN(:,:,bid) * V_ISOP * ( TMIX(:,:,k,2)  &
+!                      + eoshift(TMIX(:,:,k,2), dim=2, shift=1) )
+!            WORK2 = eoshift(WORK1, dim=2, shift=-1)
+!            WORK3 = WORK3 + WORK1 - WORK2
 
-            WORK1 = c0
-            do j=this_block%jb,this_block%je
-              do i=this_block%ib,this_block%ie
-                if ( k <= KMT(i,j,bid) ) then
-                  WORK1(i,j) = - dz(k) * TAREA_R(i,j,bid) * WORK3(i,j)
-                endif
-              enddo
-            enddo
+!            WORK1 = c0
+!            do j=this_block%jb,this_block%je
+!              do i=this_block%ib,this_block%ie
+!                if ( k <= KMT(i,j,bid) ) then
+!                  WORK1(i,j) = - dz(k) * TAREA_R(i,j,bid) * WORK3(i,j)
+!                endif
+!              enddo
+!            enddo
 
-            call accumulate_tavg_field (WORK1, tavg_ADVS_ISOP, bid, k)
+!            call accumulate_tavg_field (WORK1, tavg_ADVS_ISOP, bid, k)
 
-          endif
+!          endif
 
-          if ( accumulate_tavg_now(tavg_VNT_ISOP)  .or.  &
-               accumulate_tavg_now(tavg_VNS_ISOP) ) then
+!          if ( accumulate_tavg_now(tavg_VNT_ISOP)  .or.  &
+!               accumulate_tavg_now(tavg_VNS_ISOP) ) then
 
-            WORK1 = p5 * V_ISOP * HTN(:,:,bid) * TAREA_R(:,:,bid) 
+!            WORK1 = p5 * V_ISOP * HTN(:,:,bid) * TAREA_R(:,:,bid) 
 
-            if (accumulate_tavg_now(tavg_VNT_ISOP)) then
-              WORK2 = WORK1 * (    TMIX(:,:,k,1)  &
-                         + eoshift(TMIX(:,:,k,1), dim=2, shift=1) )
-              call accumulate_tavg_field (WORK2, tavg_VNT_ISOP, bid, k) 
-            endif
+!            if (accumulate_tavg_now(tavg_VNT_ISOP)) then
+!              WORK2 = WORK1 * (    TMIX(:,:,k,1)  &
+!                         + eoshift(TMIX(:,:,k,1), dim=2, shift=1) )
+!              call accumulate_tavg_field (WORK2, tavg_VNT_ISOP, bid, k) 
+!            endif
 
-            if (accumulate_tavg_now(tavg_VNS_ISOP)) then
-              WORK2 = WORK1 * (    TMIX(:,:,k,2)  &
-                         + eoshift(TMIX(:,:,k,2), dim=2, shift=1) )
-              call accumulate_tavg_field (WORK2, tavg_VNS_ISOP, bid, k)
-            endif
+!            if (accumulate_tavg_now(tavg_VNS_ISOP)) then
+!              WORK2 = WORK1 * (    TMIX(:,:,k,2)  &
+!                         + eoshift(TMIX(:,:,k,2), dim=2, shift=1) )
+!              call accumulate_tavg_field (WORK2, tavg_VNS_ISOP, bid, k)
+!            endif
 
-          endif
+!          endif
 
-        endif ! bolus velocity option on
+!        endif ! bolus velocity option on
 
-        do n = 1,nt
-          if (accumulate_tavg_now(tavg_HDIFE_TRACER(n))) then
-            do j=this_block%jb,this_block%je
-            do i=this_block%ib,this_block%ie
-              WORK1(i,j) = FX(i,j,n)*dzr(k)*TAREA_R(i,j,bid)
-            enddo
-            enddo
-            call accumulate_tavg_field(WORK1,tavg_HDIFE_TRACER(n),bid,k)
-          endif
+!        do n = 1,nt
+!          if (accumulate_tavg_now(tavg_HDIFE_TRACER(n))) then
+!            do j=this_block%jb,this_block%je
+!            do i=this_block%ib,this_block%ie
+!              WORK1(i,j) = FX(i,j,n)*dzr(k)*TAREA_R(i,j,bid)
+!            enddo
+!            enddo
+!            call accumulate_tavg_field(WORK1,tavg_HDIFE_TRACER(n),bid,k)
+!          endif
 
-          if (accumulate_tavg_now(tavg_HDIFN_TRACER(n))) then
-            do j=this_block%jb,this_block%je
-            do i=this_block%ib,this_block%ie
-              WORK1(i,j) = FY(i,j,n)*dzr(k)*TAREA_R(i,j,bid)
-            enddo
-            enddo
-            call accumulate_tavg_field(WORK1,tavg_HDIFN_TRACER(n),bid,k)
-          endif
+!          if (accumulate_tavg_now(tavg_HDIFN_TRACER(n))) then
+!            do j=this_block%jb,this_block%je
+!            do i=this_block%ib,this_block%ie
+!              WORK1(i,j) = FY(i,j,n)*dzr(k)*TAREA_R(i,j,bid)
+!            enddo
+!            enddo
+!            call accumulate_tavg_field(WORK1,tavg_HDIFN_TRACER(n),bid,k)
+!          endif
 
-          if (accumulate_tavg_now(tavg_HDIFB_TRACER(n))) then
-            do j=this_block%jb,this_block%je
-            do i=this_block%ib,this_block%ie
-              WORK1(i,j) = FZTOP(i,j,n,bid)*dzr(k)*TAREA_R(i,j,bid)
-            enddo
-            enddo
-            call accumulate_tavg_field(WORK1,tavg_HDIFB_TRACER(n),bid,k)
-          endif
-        enddo
+!          if (accumulate_tavg_now(tavg_HDIFB_TRACER(n))) then
+!            do j=this_block%jb,this_block%je
+!            do i=this_block%ib,this_block%ie
+!              WORK1(i,j) = FZTOP(i,j,n,bid)*dzr(k)*TAREA_R(i,j,bid)
+!            enddo
+!            enddo
+!            call accumulate_tavg_field(WORK1,tavg_HDIFB_TRACER(n),bid,k)
+!          endif
+!        enddo
 
-      endif   ! mix_pass ne 1
+!      endif   ! mix_pass ne 1
 
 
 !-----------------------------------------------------------------------
@@ -2326,6 +2786,7 @@
 ! !IROUTINE: kappa_lon_lat_vmhs 
 ! !INTERFACE:
 
+      !dir$ attributes offload:mic :: kappa_lon_lat_vmhs
       subroutine kappa_lon_lat_vmhs (TMIX, UMIX, VMIX, this_block)
 
 ! !DESCRIPTION:
@@ -2560,9 +3021,10 @@
 
 !***********************************************************************
 !BOP
-! !IROUTINE: kappa_eg
+
 ! !INTERFACE:
 
+      !dir$ attributes offload:mic :: kappa_eg
       subroutine kappa_eg (TMIX, UMIX, VMIX, this_block)
 
 ! !DESCRIPTION:
@@ -2765,7 +3227,7 @@
 !BOP
 ! !IROUTINE: kappa_lon_lat_hdgr 
 ! !INTERFACE:
-
+      !dir$ attributes offload:mic :: kappa_lon_lat_hdgr
       subroutine kappa_lon_lat_hdgr (TMIX, this_block)
 
 ! !DESCRIPTION:
@@ -2841,6 +3303,7 @@
 !     initialization
 !
 !-----------------------------------------------------------------------
+
 
       bid = this_block%local_id
 
@@ -2992,6 +3455,7 @@
 ! !IROUTINE: kappa_lon_lat_dradius 
 ! !INTERFACE:
 
+      !dir$ attributes offload:mic :: kappa_lon_lat_dradius
       subroutine kappa_lon_lat_dradius (this_block)
 
 ! !DESCRIPTION:
@@ -3111,6 +3575,7 @@
 ! !IROUTINE: buoyancy_frequency_dependent_profile 
 ! !INTERFACE:
 
+      !dir$ attributes offload:mic :: buoyancy_frequency_dependent_profile
       subroutine buoyancy_frequency_dependent_profile (TMIX, this_block)
 
 ! !DESCRIPTION:
@@ -3149,7 +3614,7 @@
 
       integer (int_kind) :: &
          k,        &          ! vertical loop index
-         bid                  ! local block address for this sub block
+         bid,i,j              ! local block address for this sub block
 
       integer (int_kind), dimension(nx_block,ny_block) :: &
          K_MIN                ! k index below SDL 
@@ -3196,23 +3661,36 @@
 !
 !-----------------------------------------------------------------------
 
+         
         do k=1,km-1
 
-          if ( k == 1 ) &
-            TEMP_K = max( -c2, TMIX(:,:,k,1) )
+          !if ( k == 1 ) TEMP_K = max( -c2, TMIX(:,:,k,1) )
 
-          TEMP_KP1 = max( -c2, TMIX(:,:,k+1,1) )
+          !TEMP_KP1 = max( -c2, TMIX(:,:,k+1,1) )
 
           call state( k, k+1, TMIX(:,:,k,1), TMIX(:,:,k,2), &
                       this_block, DRHODT=RHOT, DRHODS=RHOS )
 
-          where ( k < KMT(:,:,bid) ) 
-            BUOY_FREQ_SQ(:,:,k,bid) = max( c0, - grav * dzwr(k) &
-                * ( RHOT * ( TEMP_K - TEMP_KP1 )                &
-                  + RHOS * ( TMIX(:,:,k,  2) - TMIX(:,:,k+1,2) ) ) )
-          endwhere
+          !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(i,j)NUM_THREADS(60) 
+          do j=1,ny_block
+             do i=1,nx_block
 
-          TEMP_K = TEMP_KP1
+                if ( k == 1 ) TEMP_K(i,j) = max( -c2, TMIX(i,j,k,1) )
+
+                 TEMP_KP1(i,j) = max( -c2, TMIX(i,j,k+1,1) )
+ 
+
+
+                 if ( k < KMT(i,j,bid) ) then
+                    BUOY_FREQ_SQ(i,j,k,bid) = max( c0, - grav * dzwr(k) &
+                        * ( RHOT(i,j) * ( TEMP_K(i,j) - TEMP_KP1(i,j) ) &
+                  + RHOS(i,j) * ( TMIX(i,j,k,  2) - TMIX(i,j,k+1,2) ) ) )
+                 endif
+
+                 TEMP_K(i,j) = TEMP_KP1(i,j)
+           
+             enddo
+           enddo  
 
         enddo
 
@@ -3226,37 +3704,52 @@
 !-----------------------------------------------------------------------
 
       do k=1,km-1
-        where ( ( K_MIN == km+1 ) .and. ( zw(k) > SDL ) .and.  &
-                ( k <= KMT(:,:,bid) )  .and.                   &
-                ( BUOY_FREQ_SQ(:,:,k,bid) > c0 ) ) 
-          BUOY_FREQ_SQ_REF = BUOY_FREQ_SQ(:,:,k,bid)
-          K_MIN = k
-        endwhere
-      enddo
+       !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(i,j)NUM_THREADS(60)
+       do j=1,ny_block
+        do i=1,nx_block 
+
+         if ( ( K_MIN(i,j) == km+1 ) .and. ( zw(k) > SDL(i,j) ) .and.  &
+                ( k <= KMT(i,j,bid) )  .and.                 &
+                ( BUOY_FREQ_SQ(i,j,k,bid) > c0 ) ) then
+          BUOY_FREQ_SQ_REF(i,j) = BUOY_FREQ_SQ(i,j,k,bid)
+          K_MIN(i,j) = k
+  
+         endif
+
         
 !-----------------------------------------------------------------------
 !
 !     now compute the normalized profiles at the interfaces 
 !
 !-----------------------------------------------------------------------
+ 
+          if ( ( k >= K_MIN(i,j) ) .and. ( k < KMT(i,j,bid) ) .and. &
+                  ( BUOY_FREQ_SQ_REF(i,j) /= c0 ) ) then
+                      BUOY_FREQ_SQ_NORM(i,j,k) =  &
+                      max( BUOY_FREQ_SQ(i,j,k,bid) / BUOY_FREQ_SQ_REF(i,j), 0.1_r8 )
+                      BUOY_FREQ_SQ_NORM(i,j,k) =  &
+                      min( BUOY_FREQ_SQ_NORM(i,j,k), c1 ) 
+          else
+              BUOY_FREQ_SQ_NORM(i,j,k) = c1
+          endif
 
-      do k=1,km-1
-        where ( ( k >= K_MIN ) .and. ( k < KMT(:,:,bid) ) .and. &
-               ( BUOY_FREQ_SQ_REF /= c0 ) )
-          BUOY_FREQ_SQ_NORM(:,:,k) =  &
-              max( BUOY_FREQ_SQ(:,:,k,bid) / BUOY_FREQ_SQ_REF, 0.1_r8 )
-          BUOY_FREQ_SQ_NORM(:,:,k) =  &
-              min( BUOY_FREQ_SQ_NORM(:,:,k), c1 ) 
-        elsewhere
-          BUOY_FREQ_SQ_NORM(:,:,k) = c1
-        endwhere
+            enddo
+         enddo
       enddo
 
       do k=1,km-1
-        where ( k == KMT(:,:,bid)-1 ) 
-          BUOY_FREQ_SQ_NORM(:,:,k+1) = BUOY_FREQ_SQ_NORM(:,:,k)
-        endwhere
+       !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(i,j)NUM_THREADS(60)
+       do j=1,ny_block
+        do i=1,nx_block
+  
+        if ( k == KMT(i,j,bid)-1 ) then
+          BUOY_FREQ_SQ_NORM(i,j,k+1) = BUOY_FREQ_SQ_NORM(i,j,k)
+        endif
+
+        enddo
+       enddo 
       enddo
+
 
 !-----------------------------------------------------------------------
 !
@@ -3267,10 +3760,18 @@
 !-----------------------------------------------------------------------
 
       do k=2,km
-        where ( ( k > K_MIN ) .and. ( k <= KMT(:,:,bid) ) )
-          KAPPA_VERTICAL(:,:,k,bid) = BUOY_FREQ_SQ_NORM(:,:,k-1)
-        endwhere
+       !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(i,j)NUM_THREADS(60)
+       do j=1,ny_block
+        do i=1,nx_block
+ 
+         if ( ( k > K_MIN(i,j) ) .and. ( k <= KMT(i,j,bid) ) ) then
+          KAPPA_VERTICAL(i,j,k,bid) = BUOY_FREQ_SQ_NORM(i,j,k-1)
+         endif
+
+        enddo
+       enddo
       enddo
+
 
 !-----------------------------------------------------------------------
 !EOC
@@ -3282,6 +3783,7 @@
 ! !IROUTINE: transition_layer 
 ! !INTERFACE:
 
+      !dir$ attributes offload:mic :: transition_layer
       subroutine transition_layer ( this_block )
 
 ! !DESCRIPTION:
@@ -3306,7 +3808,7 @@
 
       integer (int_kind) :: &
          k, kk,     &        ! loop indices
-         bid                 ! local block address for this sub block
+         bid,i,j             ! local block address for this sub block
 
       integer (int_kind), dimension(nx_block,ny_block) :: &
          K_START,   &        ! work arrays for TLT%K_LEVEL and 
@@ -3339,6 +3841,8 @@
 
       COMPUTE_TLT = merge(.true., .false., KMT(:,:,bid) /= 0)
 
+      
+
 !-----------------------------------------------------------------------
 !
 !     initial pass to determine the minimum transition layer thickness.
@@ -3347,42 +3851,51 @@
 !
 !-----------------------------------------------------------------------
 
+      !start_time = omp_get_wtime()
+      
       do k=1,km
 
-        where ( COMPUTE_TLT  .and.  &
-                TLT%DIABATIC_DEPTH(:,:,bid) < zw(k) )
+              !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(j,i)NUM_THREADS(60) 
+              do j=1,ny_block
+                   do i=1,nx_block
 
-          K_START = k+1
-          K_SUB   = ktp
+                      if ( COMPUTE_TLT(i,j)  .and.  &
+                         TLT%DIABATIC_DEPTH(i,j,bid) < zw(k) ) then
 
-          TLT%THICKNESS(:,:,bid) = zw(k) - TLT%DIABATIC_DEPTH(:,:,bid)
-          TLT%K_LEVEL(:,:,bid)   = k
-          TLT%ZTW(:,:,bid)       = 2
+                         K_START(i,j) = k+1
+                         K_SUB(i,j)   = ktp
 
-          COMPUTE_TLT = .false.
+                         TLT%THICKNESS(i,j,bid) = zw(k) - TLT%DIABATIC_DEPTH(i,j,bid)
+                         TLT%K_LEVEL(i,j,bid)   = k
+                         TLT%ZTW(i,j,bid)       = 2
 
-        endwhere
+                         COMPUTE_TLT(i,j) = .false.
 
-        where ( k /= 1  .and.  K_START == k+1  .and. &
-                TLT%DIABATIC_DEPTH(:,:,bid) < zt(k) )
+                      endif
 
-          K_START = k
-          K_SUB   = kbt
+          
+                      if ( k /= 1  .and.  K_START(i,j) == k+1  .and. &
+                         TLT%DIABATIC_DEPTH(i,j,bid) < zt(k) ) then
+                         K_START(i,j) = k
+                         K_SUB(i,j)   = kbt
 
-          TLT%THICKNESS(:,:,bid) = zt(k) - TLT%DIABATIC_DEPTH(:,:,bid)
-          TLT%K_LEVEL(:,:,bid)   = k
-          TLT%ZTW(:,:,bid)       = 1
+                         TLT%THICKNESS(i,j,bid) = zt(k) - TLT%DIABATIC_DEPTH(i,j,bid)
+                         TLT%K_LEVEL(i,j,bid)   = k
+                         TLT%ZTW(i,j,bid)       = 1
 
-        endwhere
+                      endif
 
+                   enddo
+              enddo
       enddo
-
+  
 #ifdef CCSMCOUPLED
 #ifndef _HIRES
+
       if ( any(COMPUTE_TLT) ) then
-        call shr_sys_abort ('Incorrect DIABATIC_DEPTH value in TLT'  &
-                        //  ' computation')
+        print *,"Incorrect DIABATIC_DEPTH value in TLT computation"
       endif
+
 #endif
 #endif
 
@@ -3396,47 +3909,70 @@
 !
 !-----------------------------------------------------------------------
 
-      where ( KMT(:,:,bid) == 0  .or.  K_START > KMT(:,:,bid)  .or.  &
-              ( K_START == KMT(:,:,bid)  .and.  K_SUB == kbt ) )
-        COMPUTE_TLT = .false.
-      elsewhere
-        COMPUTE_TLT = .true.
-      endwhere
+             !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(j,i)NUM_THREADS(60)
+             do j=1,ny_block
+                   do i=1,nx_block
 
-      do k=1,km-1
+                      if ( KMT(i,j,bid) == 0  .or.  K_START(i,j) > KMT(i,j,bid)  .or.  &
+                      ( K_START(i,j) == KMT(i,j,bid)  .and.  K_SUB(i,j) == kbt ) ) then
+                         COMPUTE_TLT(i,j) = .false.
+                      else
+                         COMPUTE_TLT(i,j) = .true.
 
-        WORK = c0
+                      endif
 
-        where ( COMPUTE_TLT  .and.  K_SUB == kbt  .and.  &
-                K_START < KMT(:,:,bid)  .and.  K_START == k )
-          WORK = max(SLA_SAVE(:,:,kbt,k,bid), &
-                     SLA_SAVE(:,:,ktp,k+1,bid)) * RB(:,:,bid)
-        endwhere
+                   enddo
+              enddo
 
-        where ( WORK /= c0  .and.  &
-                TLT%DIABATIC_DEPTH(:,:,bid) <  (zw(k) - WORK) )
-          COMPUTE_TLT = .false.
-        endwhere
+             do k=1,km-1
 
-        where ( WORK /= c0  .and.  &
-                TLT%DIABATIC_DEPTH(:,:,bid) >= (zw(k) - WORK) )
+             !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(j,i)NUM_THREADS(60)
+             do j=1,ny_block
+                   do i=1,nx_block
 
-          K_START = K_START + 1
-          K_SUB   = ktp
+                     WORK(i,j) = c0
 
-          TLT%THICKNESS(:,:,bid) = zw(k) - TLT%DIABATIC_DEPTH(:,:,bid)
-          TLT%K_LEVEL(:,:,bid)   = k
-          TLT%ZTW(:,:,bid)       = 2
+                      if ( COMPUTE_TLT(i,j)  .and.  K_SUB(i,j) == kbt  .and.  &
+                         K_START(i,j) < KMT(i,j,bid)  .and.  K_START(i,j) == k ) then
 
-        endwhere
+                         WORK(i,j) = max(SLA_SAVE(i,j,kbt,k,bid), &
+                         SLA_SAVE(i,j,ktp,k+1,bid)) * RB(i,j,bid)
 
-      enddo
+                      endif
+
+                      if ( WORK(i,j) /= c0  .and.  &
+                         TLT%DIABATIC_DEPTH(i,j,bid) <  (zw(k) - WORK(i,j)) ) then
+                         COMPUTE_TLT(i,j) = .false.
+                      endif
+
+
+                      if ( WORK(i,j) /= c0  .and.  &
+                         TLT%DIABATIC_DEPTH(i,j,bid) >= (zw(k) - WORK(i,j)) ) then
+
+                         K_START(i,j) = K_START(i,j) + 1
+                         K_SUB(i,j)   = ktp
+
+                         TLT%THICKNESS(i,j,bid) = zw(k) - TLT%DIABATIC_DEPTH(i,j,bid)
+                         TLT%K_LEVEL(i,j,bid)   = k
+                         TLT%ZTW(i,j,bid)       = 2
+
+                      endif
+                   enddo
+             enddo
+             enddo
+
+      !end_time = omp_get_wtime()
+
+      !print *,"Transition layer time is",end_time - start_time
+
 
 !-----------------------------------------------------------------------
 !
 !     now consider the deeper levels
 !
 !-----------------------------------------------------------------------
+
+      !start_time = omp_get_wtime()
 
       do k=2,km
 
@@ -3445,54 +3981,75 @@
 
         do kk=ktp,kbt
 
-          WORK = c0
+              !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(j,i)NUM_THREADS(60)SCHEDULE(DYNAMIC,16)
+              do j=1,ny_block
+                   do i=1,nx_block
+                      if (kk == ktp) then
+                   
+                         WORK(i,j) = c0 
+                         if ( COMPUTE_TLT(i,j)  .and.  K_START(i,j) <= KMT(i,j,bid)  .and. &
+                         K_START(i,j) == k ) then
+                         WORK(i,j) = max(SLA_SAVE(i,j,ktp,k,bid), &
+                         SLA_SAVE(i,j,kbt,k,bid)) * RB(i,j,bid)
+                         endif
 
-          if (kk == ktp) then
-            where ( COMPUTE_TLT  .and.  K_START <= KMT(:,:,bid)  .and. &
-                    K_START == k )
-              WORK = max(SLA_SAVE(:,:,ktp,k,bid), &
-                         SLA_SAVE(:,:,kbt,k,bid)) * RB(:,:,bid)
-            endwhere
-          else
-            ! Checking k < km guarantees that k+1 is not out of bounds
-            if (k.lt.km) then
-              where ( COMPUTE_TLT  .and.  K_START < KMT(:,:,bid)  .and. &
-                      K_START == k )
-                WORK = max(SLA_SAVE(:,:,kbt,k,bid), &
-                           SLA_SAVE(:,:,ktp,k+1,bid)) * RB(:,:,bid)
-              endwhere
-            end if
-            where ( COMPUTE_TLT  .and.  K_START == KMT(:,:,bid)  .and. &
-                    K_START == k )
-              WORK = SLA_SAVE(:,:,kbt,k,bid) * RB(:,:,bid)
-            endwhere
-          endif
 
-          where ( WORK /= c0  .and.  &
-           TLT%DIABATIC_DEPTH(:,:,bid) <  (reference_depth(kk) - WORK) )
-            COMPUTE_TLT = .false.
-          endwhere
+                      else
+ 
+                         if ( COMPUTE_TLT(i,j)  .and.  K_START(i,j) < KMT(i,j,bid)  .and. &
+                            K_START(i,j) == k .and. k .lt. km) then
+                            WORK(i,j) = max(SLA_SAVE(i,j,kbt,k,bid), &
+                            SLA_SAVE(i,j,ktp,k+1,bid)) * RB(i,j,bid)
+                         endif
 
-          where ( WORK /= c0  .and.  &
-           TLT%DIABATIC_DEPTH(:,:,bid) >= (reference_depth(kk) - WORK) )
-            TLT%THICKNESS(:,:,bid) = reference_depth(kk)  &
-                                    - TLT%DIABATIC_DEPTH(:,:,bid)
-            TLT%K_LEVEL(:,:,bid)   = k
-            TLT%ZTW(:,:,bid)       = kk
-          endwhere
+
+                         if ( COMPUTE_TLT(i,j)  .and.  K_START(i,j) == KMT(i,j,bid)  .and. &
+                               K_START(i,j) == k ) then
+                               WORK(i,j) = SLA_SAVE(i,j,kbt,k,bid) * RB(i,j,bid)
+                         endif
+
+                      endif  
+
+                      if ( WORK(i,j) /= c0  .and.  &
+                               TLT%DIABATIC_DEPTH(i,j,bid) <  (reference_depth(kk) - WORK(i,j)) )then 
+                               COMPUTE_TLT(i,j) = .false.
+                      endif
+ 
+                      if ( WORK(i,j) /= c0  .and.  &
+                        TLT%DIABATIC_DEPTH(i,j,bid) >= (reference_depth(kk) - WORK(i,j)) ) then
+
+                                TLT%THICKNESS(i,j,bid) = reference_depth(kk)  &
+                                    - TLT%DIABATIC_DEPTH(i,j,bid)
+                                TLT%K_LEVEL(i,j,bid)   = k
+                                TLT%ZTW(i,j,bid)       = kk
+
+                       endif
+
+                   enddo
+              enddo
 
         enddo
 
-        where ( COMPUTE_TLT  .and.  K_START == k )
-          K_START = K_START + 1
-        endwhere
+              do j=1,ny_block
+                   do i=1,nx_block
+
+                       if ( COMPUTE_TLT(i,j)  .and.  K_START(i,j) == k ) then
+                           K_START(i,j) = K_START(i,j) + 1
+                       endif
+                   enddo
+              enddo  
 
       enddo
+
+
+      !end_time = omp_get_wtime()
+
+      !print *,"Transition layer time is",end_time - start_time  
 
 #ifdef CCSMCOUPLED
 #ifndef _HIRES
       if ( any(COMPUTE_TLT) ) then
-        call shr_sys_abort ('Incorrect TLT computations')
+        print *,'Incorrect TLT computations'
       endif
 #endif
 #endif
@@ -3504,31 +4061,68 @@
 !-----------------------------------------------------------------------
 
       do k=1,km
-        where ( TLT%K_LEVEL(:,:,bid) == k  .and.  &
-                TLT%ZTW(:,:,bid) == 1 )
-          TLT%INTERIOR_DEPTH(:,:,bid) = zt(k)
-        endwhere
-        where ( TLT%K_LEVEL(:,:,bid) == k  .and.  &
-                TLT%ZTW(:,:,bid) == 2 )
-          TLT%INTERIOR_DEPTH(:,:,bid) = zw(k)
-        endwhere
+
+             !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(j,i)NUM_THREADS(60)
+             do j=1,ny_block
+                   do i=1,nx_block
+
+
+                      if ( TLT%K_LEVEL(i,j,bid) == k  .and.  &
+                         TLT%ZTW(i,j,bid) == 1 ) then
+
+                            TLT%INTERIOR_DEPTH(i,j,bid) = zt(k)
+                      endif
+
+
+                      if ( TLT%K_LEVEL(i,j,bid) == k  .and.  &
+                         TLT%ZTW(i,j,bid) == 2 ) then
+
+                            TLT%INTERIOR_DEPTH(i,j,bid) = zw(k)
+                      endif
+
+                   enddo
+              enddo
       enddo
 
-      COMPUTE_TLT = .false.
-      where ( KMT(:,:,bid) /= 0  .and.  &
-              TLT%INTERIOR_DEPTH(:,:,bid) == c0 )  &
-        COMPUTE_TLT = .true.
-      where ( KMT(:,:,bid) == 0  .and.  &
-              TLT%INTERIOR_DEPTH(:,:,bid) /= c0 )  &
-        COMPUTE_TLT = .true.
+             !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(j,i)NUM_THREADS(60)
+             do j=1,ny_block
+                   do i=1,nx_block
+
+
+                      COMPUTE_TLT(i,j) = .false.
+
+                      if ( KMT(i,j,bid) /= 0  .and.  &
+                           TLT%INTERIOR_DEPTH(i,j,bid) == c0 ) then 
+                           
+                           COMPUTE_TLT(i,j) = .true.
+
+                      endif    
+
+                      if ( KMT(i,j,bid) == 0  .and.  &
+                            TLT%INTERIOR_DEPTH(i,j,bid) /= c0 )  then
+
+                            COMPUTE_TLT(i,j) = .true.
+
+                      endif  
+
+                   enddo
+              enddo
+  
 
 #ifdef CCSMCOUPLED
 #ifndef _HIRES
       if ( any(COMPUTE_TLT) ) then
-        call shr_sys_abort ('Incorrect TLT%INTERIOR_DEPTH computation')
+        print *,'Incorrect TLT%INTERIOR_DEPTH computation'
       endif
 #endif
 #endif
+
+      !if(my_task == master_task)then
+      !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write",form="unformatted")
+      !write(10),WORK,TLT%THICKNESS,TLT%K_LEVEL,TLT%ZTW,COMPUTE_TLT
+      !close(10)
+      !endif
+
 
 !-----------------------------------------------------------------------
 !EOC
@@ -3540,6 +4134,7 @@
 ! !IROUTINE: merged_streamfunction 
 ! !INTERFACE:
 
+      !dir$ attributes offload:mic :: merged_streamfunction
       subroutine merged_streamfunction ( this_block )
 
 ! !DESCRIPTION:
@@ -3565,7 +4160,7 @@
 
       integer (int_kind) :: &
          k, kk,     &        ! loop indices
-         bid                 ! local block address for this sub block
+         bid,i,j,temp        ! local block address for this sub block
  
       real (r8), dimension(nx_block,ny_block,2) :: &
          WORK1, WORK2, WORK3, WORK4   ! work arrays
@@ -3582,16 +4177,42 @@
       real (r8), dimension(2) :: &
          reference_depth              ! zt or zw
 
+      !real (r8) :: &
+      !   start_time,end_time
+
+
+
 !-----------------------------------------------------------------------
 !
 !     initialize various quantities
 !
 !-----------------------------------------------------------------------
 
+
+      !start_time = omp_get_wtime() 
       bid = this_block%local_id
 
-      SF_SLX(:,:,:,:,:,bid) = c0
-      SF_SLY(:,:,:,:,:,bid) = c0
+     !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(k,kk,temp,j,i)num_threads(60)collapse(4)
+     do k=1,km
+        do kk=1,2
+           do temp=1,2 
+              do j=1,ny_block
+                 !!dir$ vector aligned
+                 !!dir$ ivdep
+                 do i=1,nx_block
+ 
+                    SF_SLX(i,j,temp,kk,k,bid) = c0
+                    SF_SLY(i,j,temp,kk,k,bid) = c0
+
+                 enddo
+              enddo
+            enddo
+          enddo
+      enddo   
+
+      !end_time = omp_get_wtime()
+      !print *,end_time - start_time
+
 
       WORK1 = c0
       WORK2 = c0
@@ -3602,6 +4223,8 @@
       WORK7 = c0
       WORK2_NEXT = c0
       WORK4_NEXT = c0
+ 
+
 
 !-----------------------------------------------------------------------
 !
@@ -3618,91 +4241,183 @@
 !
 !-----------------------------------------------------------------------
 
+      !start_time = omp_get_wtime()   
+   
       do k=1,km-1
 
         do kk=1,2
+ 
+          !!$OMP PARALLEL DO PRIVATE(I,J)DEFAULT(SHARED)NUM_THREADS(60) 
+          do j=1,ny_block
+           do i=1,nx_block
 
-          LMASK = TLT%K_LEVEL(:,:,bid) == k  .and.            &
-                  TLT%K_LEVEL(:,:,bid) < KMT(:,:,bid)  .and.  &
-                  TLT%ZTW(:,:,bid) == 1
+ 
+            LMASK(i,j) = TLT%K_LEVEL(i,j,bid) == k  .and.            &
+                       TLT%K_LEVEL(i,j,bid) < KMT(i,j,bid)  .and.  &
+                       TLT%ZTW(i,j,bid) == 1
 
-          where ( LMASK ) 
 
-            WORK1(:,:,kk) =  KAPPA_THIC(:,:,kbt,k,bid)  &
-                           * SLX(:,:,kk,kbt,k,bid) * dz(k)
-            WORK2(:,:,kk) = c2 * dzwr(k) * ( WORK1(:,:,kk)            &
-              - KAPPA_THIC(:,:,ktp,k+1,bid) * SLX(:,:,kk,ktp,k+1,bid) &
+            if ( LMASK(i,j) ) then 
+
+             WORK1(i,j,kk) =  KAPPA_THIC(i,j,kbt,k,bid)  &
+                           * SLX(i,j,kk,kbt,k,bid) * dz(k)
+
+             WORK2(i,j,kk) = c2 * dzwr(k) * ( WORK1(i,j,kk)            &
+              - KAPPA_THIC(i,j,ktp,k+1,bid) * SLX(i,j,kk,ktp,k+1,bid) &
                                             * dz(k+1) )
 
-            WORK2_NEXT = c2 * ( &
-              KAPPA_THIC(:,:,ktp,k+1,bid) * SLX(:,:,kk,ktp,k+1,bid) - &
-              KAPPA_THIC(:,:,kbt,k+1,bid) * SLX(:,:,kk,kbt,k+1,bid) )
+             !if(my_task == master_task .and. nsteps_total == 6 .and. k == 2 .and. kk == 1 .and. i==3 .and. j==7)then
 
-            WORK3(:,:,kk) =  KAPPA_THIC(:,:,kbt,k,bid)  &
-                           * SLY(:,:,kk,kbt,k,bid) * dz(k)
-            WORK4(:,:,kk) = c2 * dzwr(k) * ( WORK3(:,:,kk)            &
-              - KAPPA_THIC(:,:,ktp,k+1,bid) * SLY(:,:,kk,ktp,k+1,bid) &
+
+             !print *,"Original1"
+             !print *,"WORK2(i,j)",WORK2(3,7,1),k
+
+             !endif
+
+
+             WORK2_NEXT(i,j) = c2 * ( &
+              KAPPA_THIC(i,j,ktp,k+1,bid) * SLX(i,j,kk,ktp,k+1,bid) - &
+              KAPPA_THIC(i,j,kbt,k+1,bid) * SLX(i,j,kk,kbt,k+1,bid) )
+
+             WORK3(i,j,kk) =  KAPPA_THIC(i,j,kbt,k,bid)  &
+                           * SLY(i,j,kk,kbt,k,bid) * dz(k)
+
+             WORK4(i,j,kk) = c2 * dzwr(k) * ( WORK3(i,j,kk)            &
+              - KAPPA_THIC(i,j,ktp,k+1,bid) * SLY(i,j,kk,ktp,k+1,bid) &
                                             * dz(k+1) )
 
-            WORK4_NEXT = c2 * ( &
-              KAPPA_THIC(:,:,ktp,k+1,bid) * SLY(:,:,kk,ktp,k+1,bid) - &
-              KAPPA_THIC(:,:,kbt,k+1,bid) * SLY(:,:,kk,kbt,k+1,bid) )
+             WORK4_NEXT(i,j) = c2 * ( &
+              KAPPA_THIC(i,j,ktp,k+1,bid) * SLY(i,j,kk,ktp,k+1,bid) - &
+              KAPPA_THIC(i,j,kbt,k+1,bid) * SLY(i,j,kk,kbt,k+1,bid) )
 
-          endwhere
+            endif
 
-          where ( LMASK .and. abs(WORK2_NEXT) < abs(WORK2(:,:,kk)) ) &
-            WORK2(:,:,kk) = WORK2_NEXT
+            if( LMASK(i,j) .and. abs( WORK2_NEXT(i,j) ) < abs( WORK2(i,j,kk) ) )then 
 
-          where ( LMASK .and. abs(WORK4_NEXT) < abs(WORK4(:,:,kk)) ) &
-            WORK4(:,:,kk) = WORK4_NEXT
+             WORK2(i,j,kk) = WORK2_NEXT(i,j)
 
-          LMASK = TLT%K_LEVEL(:,:,bid) == k  .and.           &
-                  TLT%K_LEVEL(:,:,bid) < KMT(:,:,bid)  .and. &
-                  TLT%ZTW(:,:,bid) == 2
+      !if(my_task == master_task .and. nsteps_total == 6 .and. k == 2 .and. kk == 1 .and. i==3 .and. j==7)then
 
-          where ( LMASK )
 
-            WORK1(:,:,kk) =  KAPPA_THIC(:,:,ktp,k+1,bid)     & 
-                           * SLX(:,:,kk,ktp,k+1,bid)
-            WORK2(:,:,kk) =  c2 * ( WORK1(:,:,kk)                 &
-                           - ( KAPPA_THIC(:,:,kbt,k+1,bid)        &
-                              * SLX(:,:,kk,kbt,k+1,bid) ) )
-            WORK1(:,:,kk) = WORK1(:,:,kk) * dz(k+1)
+         !print *,"Origina2"
+         !print *,"WORK2(i,j)",WORK2(3,7,1),k
 
-            WORK3(:,:,kk) =  KAPPA_THIC(:,:,ktp,k+1,bid)     &
-                           * SLY(:,:,kk,ktp,k+1,bid)
-            WORK4(:,:,kk) =  c2 * ( WORK3(:,:,kk)                 &
-                           - ( KAPPA_THIC(:,:,kbt,k+1,bid)        &
-                              * SLY(:,:,kk,kbt,k+1,bid) ) )
-            WORK3(:,:,kk) = WORK3(:,:,kk) * dz(k+1)
+      !endif
 
-          endwhere
 
-          LMASK = LMASK .and. TLT%K_LEVEL(:,:,bid) + 1 < KMT(:,:,bid)
+            endif
+
+           if ( LMASK(i,j) .and. abs( WORK4_NEXT(i,j) ) < abs( WORK4(i,j,kk ) )) then 
+             WORK4(i,j,kk) = WORK4_NEXT(i,j)
+           endif
+
+          LMASK(i,j) = TLT%K_LEVEL(i,j,bid) == k  .and.           &
+                       TLT%K_LEVEL(i,j,bid) < KMT(i,j,bid)  .and. &
+                       TLT%ZTW(i,j,bid) == 2
+
+          if ( LMASK(i,j) ) then
+
+            WORK1(i,j,kk) =  KAPPA_THIC(i,j,ktp,k+1,bid)     & 
+                           * SLX(i,j,kk,ktp,k+1,bid)
+
+            WORK2(i,j,kk) =  c2 * ( WORK1(i,j,kk)                 &
+                           - ( KAPPA_THIC(i,j,kbt,k+1,bid)        &
+                              * SLX(i,j,kk,kbt,k+1,bid) ) )
+
+      !if(my_task == master_task .and. nsteps_total == 6 .and. k == 2 .and. kk == 1 .and. i==3 .and. j==7)then
+
+
+         !print *,"Original3"
+         !print *,"WORK2(i,j)",WORK2(3,7,1),k
+
+      !endif
+
+
+            WORK1(i,j,kk) = WORK1(i,j,kk) * dz(k+1)
+
+            WORK3(i,j,kk) =  KAPPA_THIC(i,j,ktp,k+1,bid)     &
+                           * SLY(i,j,kk,ktp,k+1,bid)
+
+            WORK4(i,j,kk) =  c2 * ( WORK3(i,j,kk)                 &
+                           - ( KAPPA_THIC(i,j,kbt,k+1,bid)        &
+                              * SLY(i,j,kk,kbt,k+1,bid) ) )
+
+            WORK3(i,j,kk) = WORK3(i,j,kk) * dz(k+1)
+
+            endif
+ 
+          LMASK(i,j) = LMASK(i,j) .and. TLT%K_LEVEL(i,j,bid) + 1 < KMT(i,j,bid)
 
           if (k.lt.km-1) then ! added to avoid out of bounds access
-            where ( LMASK )
 
-              WORK2_NEXT = c2 * dzwr(k+1) * ( &
-                KAPPA_THIC(:,:,kbt,k+1,bid) * SLX(:,:,kk,kbt,k+1,bid) * dz(k+1) - &
-                KAPPA_THIC(:,:,ktp,k+2,bid) * SLX(:,:,kk,ktp,k+2,bid) * dz(k+2))
+            if( LMASK(i,j) ) then
 
-              WORK4_NEXT = c2 * dzwr(k+1) * ( &
-                KAPPA_THIC(:,:,kbt,k+1,bid) * SLY(:,:,kk,kbt,k+1,bid) * dz(k+1) - &
-                KAPPA_THIC(:,:,ktp,k+2,bid) * SLY(:,:,kk,ktp,k+2,bid) * dz(k+2))
+      !if(my_task == master_task .and. nsteps_total == 6 .and. k == 2 .and. i==3 .and. j==7 .and. kk == 1)then
 
-            endwhere
+
+         !print *,"Original"
+         !print *,"WORK2(i,j)",WORK2(3,7,1),k
+         !print *,"WORK2_NEXT(i,j)",WORK2_NEXT(i,j)
+         !print *,"KAPPA_THIC_UNIFIED(i,j,kbt,k+1,bid)",KAPPA_THIC(i,j,kbt,k+1,bid)
+         !print *,"KAPPA_THIC_UNIFIED(i,j,ktp,k+2,bid)",KAPPA_THIC(i,j,ktp,k+2,bid)
+
+      !endif
+
+
+              WORK2_NEXT(i,j) = c2 * dzwr(k+1) * ( &
+                KAPPA_THIC(i,j,kbt,k+1,bid) * SLX(i,j,kk,kbt,k+1,bid) * dz(k+1)- &
+                KAPPA_THIC(i,j,ktp,k+2,bid) * SLX(i,j,kk,ktp,k+2,bid) * dz(k+2))
+
+              WORK4_NEXT(i,j) = c2 * dzwr(k+1) * ( &
+                KAPPA_THIC(i,j,kbt,k+1,bid) * SLY(i,j,kk,kbt,k+1,bid) * dz(k+1)- &
+                KAPPA_THIC(i,j,ktp,k+2,bid) * SLY(i,j,kk,ktp,k+2,bid) * dz(k+2))
+
+              endif 
+
           end if
+             
+          if( LMASK(i,j) .and. abs( WORK2_NEXT(i,j) ) < abs( WORK2(i,j,kk) ) ) &
+            WORK2(i,j,kk) = WORK2_NEXT(i,j)
 
-          where ( LMASK .and. abs(WORK2_NEXT) < abs(WORK2(:,:,kk)) ) &
-            WORK2(:,:,kk) = WORK2_NEXT
+      !if(my_task == master_task .and. nsteps_total == 6 .and. k == 2 .and. kk == 1 .and. i==3 .and. j==7)then
 
-          where ( LMASK .and. abs(WORK4_NEXT) < abs(WORK4(:,:,kk)) ) &
-            WORK4(:,:,kk) = WORK4_NEXT
 
+         !print *,"Original4"
+         !print *,"WORK2(i,j)",WORK2(3,7,1),k
+
+      !endif
+
+
+          if( LMASK(i,j) .and. abs(WORK4_NEXT(i,j)) < abs(WORK4(i,j,kk)) ) &
+            WORK4(i,j,kk) = WORK4_NEXT(i,j)
+
+             enddo
+          enddo
+          !!$OMP END PARALLEL DO
         enddo
-
       enddo
+
+      !if(my_task == master_task .and. nsteps_total == 6 )then
+
+
+         !print *,"Original"
+         !print *,"WORK2(i,j)",WORK2(3,7,1)
+
+      !endif
+ 
+
+      !if(my_task==master_task)then
+
+       !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write",form="formatted")
+       !write(10,*),WORK1,WORK2,WORK3,WORK4,WORk2_NEXT,WORK4_NEXT
+       !close(10)
+
+      !endif
+ 
+
+      !end_time = omp_get_wtime()
+
+      !print *,"time taken at merged_stream 1 is ",end_time - start_time
 
 !-----------------------------------------------------------------------
 !
@@ -3712,16 +4427,25 @@
 !
 !-----------------------------------------------------------------------
 
-      WORK5 = c0
-      where (KMT(:,:,bid) /= 0)
-        WORK5(:,:) = c1 / ( c2 * TLT%DIABATIC_DEPTH(:,:,bid) &
-                   + TLT%THICKNESS(:,:,bid) )
-      endwhere
+          do j=1,ny_block
+             do i=1,nx_block
 
-      WORK6 = c0
-      where ((KMT(:,:,bid) /= 0) .AND. (TLT%THICKNESS(:,:,bid) > eps))
-        WORK6(:,:) = WORK5(:,:) / TLT%THICKNESS(:,:,bid)
-      endwhere
+                WORK5(i,j) = c0
+                if (KMT(i,j,bid) /= 0) then
+                   WORK5(i,j) = c1 / ( c2 * TLT%DIABATIC_DEPTH(i,j,bid) &
+                   + TLT%THICKNESS(i,j,bid) )
+ 
+                endif 
+
+                WORK6(i,j) = c0
+                if ((KMT(i,j,bid) /= 0) .AND. (TLT%THICKNESS(i,j,bid) > eps))then
+                   WORK6(i,j) = WORK5(i,j) / TLT%THICKNESS(i,j,bid)
+      
+                endif
+
+             enddo
+          enddo
+
 
 !-----------------------------------------------------------------------
 !
@@ -3729,6 +4453,8 @@
 !
 !-----------------------------------------------------------------------
 
+      !start_time = omp_get_wtime()
+      !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(i,j,k,kk,reference_depth)num_threads(60)SCHEDULE(DYNAMIC,6) 
       do k=1,km
 
         reference_depth(ktp) = zt(k) - p25 * dz(k)
@@ -3741,27 +4467,47 @@
 !     diabatic region: use linear interpolation (in streamfunction) 
 !
 !-----------------------------------------------------------------------
+     
+          do j=1,ny_block
+             do i=1,nx_block
 
-          where ( reference_depth(kk) <= TLT%DIABATIC_DEPTH(:,:,bid)  &
-                  .and.  k <= KMT(:,:,bid) ) 
 
-            SF_SLX(:,:,1,kk,k,bid) = reference_depth(kk) * WORK5  &
-                  * ( c2 * WORK1(:,:,1) + TLT%THICKNESS(:,:,bid)  &
-                     * WORK2(:,:,1) )
+                if ( reference_depth(kk) <= TLT%DIABATIC_DEPTH(i,j,bid)  &
+                       .and.  k <= KMT(i,j,bid) ) then
 
-            SF_SLX(:,:,2,kk,k,bid) = reference_depth(kk) * WORK5  &
-                  * ( c2 * WORK1(:,:,2) + TLT%THICKNESS(:,:,bid)  &
-                     * WORK2(:,:,2) )
+                 !if(my_task == master_task .and. nsteps_total == 6 .and. k == 1 .and. i == 3 .and. j == 7 .and. kk == 1)then
 
-            SF_SLY(:,:,1,kk,k,bid) = reference_depth(kk) * WORK5  &
-                  * ( c2 * WORK3(:,:,1) + TLT%THICKNESS(:,:,bid)  &
-                     * WORK4(:,:,1) )
 
-            SF_SLY(:,:,2,kk,k,bid) = reference_depth(kk) * WORK5  &
-                  * ( c2 * WORK3(:,:,2) + TLT%THICKNESS(:,:,bid)  &
-                     * WORK4(:,:,2) )
+                 !print *,"Original1"
+                 !print *,"reference_depth(kk)",reference_depth(kk)
+                 !print *,"TLT%DIABATIC_DEPTH(i,j,bid)",TLT%DIABATIC_DEPTH(i,j,bid)
+                 !print *,"WORK1(i,j,1)",WORK1(i,j,1)
+                 !print *,"WORK2(i,j,1)",WORK2(i,j,1)
+                 !print *," KMT(i,j,bid)", KMT(i,j,bid)
+                 !print *,"WORK5(i,j)",WORK5(i,j)
+                 !print *,"SF_SLX(i,j,1,kk,k,bid)",SF_SLX(i,j,1,kk,k,bid)
 
-          endwhere
+                 !endif
+
+
+                       SF_SLX(i,j,1,kk,k,bid) = reference_depth(kk) * WORK5(i,j)  &
+                             * ( c2 * WORK1(i,j,1) + TLT%THICKNESS(i,j,bid)       &
+                                * WORK2(i,j,1) )
+
+                       SF_SLX(i,j,2,kk,k,bid) = reference_depth(kk) * WORK5(i,j)  &
+                              * ( c2 * WORK1(i,j,2) + TLT%THICKNESS(i,j,bid)      &
+                                * WORK2(i,j,2) )
+
+                       SF_SLY(i,j,1,kk,k,bid) = reference_depth(kk) * WORK5(i,j)  &
+                             * ( c2 * WORK3(i,j,1) + TLT%THICKNESS(i,j,bid)       &
+                                * WORK4(i,j,1) )
+
+                       SF_SLY(i,j,2,kk,k,bid) = reference_depth(kk) * WORK5(i,j)  &
+                             * ( c2 * WORK3(i,j,2) + TLT%THICKNESS(i,j,bid)       &
+                                * WORK4(i,j,2) )
+     
+                endif
+      
 
 !-----------------------------------------------------------------------
 !
@@ -3769,42 +4515,60 @@
 !
 !-----------------------------------------------------------------------
 
-          where ( reference_depth(kk) > TLT%DIABATIC_DEPTH(:,:,bid)   &
-            .and.  reference_depth(kk) <= TLT%INTERIOR_DEPTH(:,:,bid) &
-            .and.  k <= KMT(:,:,bid) )
 
-            WORK7 = (TLT%DIABATIC_DEPTH(:,:,bid)  &
-                     - reference_depth(kk))**2
+                 if ( reference_depth(kk) > TLT%DIABATIC_DEPTH(i,j,bid)   &
+                .and.  reference_depth(kk) <= TLT%INTERIOR_DEPTH(i,j,bid) &
+                .and.  k <= KMT(i,j,bid) ) then
 
-            SF_SLX(:,:,1,kk,k,bid) = - WORK7 * WORK6            &
-                * ( WORK1(:,:,1) + TLT%INTERIOR_DEPTH(:,:,bid)  &
-                   * WORK2(:,:,1) )                             &
-               + reference_depth(kk) * WORK5                    &
-                * ( c2 * WORK1(:,:,1) + TLT%THICKNESS(:,:,bid)  &
-                   * WORK2(:,:,1) )
+                 !if(my_task == master_task .and. nsteps_total == 6 .and. k == 1 .and. i == 3 .and. j == 7 .and. kk == 1 )then
 
-            SF_SLX(:,:,2,kk,k,bid) = - WORK7 * WORK6            &
-                * ( WORK1(:,:,2) + TLT%INTERIOR_DEPTH(:,:,bid)  &
-                   * WORK2(:,:,2) )                             &
-               + reference_depth(kk) * WORK5                    &
-                * ( c2 * WORK1(:,:,2) + TLT%THICKNESS(:,:,bid)  &
-                   * WORK2(:,:,2) )
 
-            SF_SLY(:,:,1,kk,k,bid) = - WORK7 * WORK6            &
-                * ( WORK3(:,:,1) + TLT%INTERIOR_DEPTH(:,:,bid)  &
-                   * WORK4(:,:,1) )                             &
-               + reference_depth(kk) * WORK5                    &
-                * ( c2 * WORK3(:,:,1) + TLT%THICKNESS(:,:,bid)  &
-                   * WORK4(:,:,1) )
+                 !print *,"Original2"
+                 !print *,"reference_depth(kk)",reference_depth(kk)
+                 !print *,"TLT%DIABATIC_DEPTH(i,j,bid)",TLT%DIABATIC_DEPTH(i,j,bid)
+                 !print *,"WORK1(i,j,1)",WORK1(i,j,1)
+                 !print *,"WORK2(i,j,1)",WORK2(i,j,1)
+                 !print *," KMT(i,j,bid)", KMT(i,j,bid)
+                 !print *,"WORK5(i,j)",WORK5(i,j)
+                 !print *,"SF_SLX(i,j,1,kk,k,bid)",SF_SLX(i,j,1,kk,k,bid)
+                 !print *,"WORK7(i,j)",WORK7(i,j)
 
-            SF_SLY(:,:,2,kk,k,bid) = - WORK7 * WORK6            &
-                * ( WORK3(:,:,2) + TLT%INTERIOR_DEPTH(:,:,bid)  &
-                   * WORK4(:,:,2) )                             &
-               + reference_depth(kk) * WORK5                    &
-                * ( c2 * WORK3(:,:,2) + TLT%THICKNESS(:,:,bid)  &
-                   * WORK4(:,:,2) )
+                 !endif
 
-          endwhere
+
+                               WORK7(i,j) = (TLT%DIABATIC_DEPTH(i,j,bid)  &
+                                       - reference_depth(kk))**2
+
+                      SF_SLX(i,j,1,kk,k,bid) = - WORK7(i,j) * WORK6(i,j)  &
+                          * ( WORK1(i,j,1) + TLT%INTERIOR_DEPTH(i,j,bid)  &
+                             * WORK2(i,j,1) )                             &
+                         + reference_depth(kk) * WORK5(i,j)               &
+                          * ( c2 * WORK1(i,j,1) + TLT%THICKNESS(i,j,bid)  &
+                                     * WORK2(i,j,1) )
+
+                      SF_SLX(i,j,2,kk,k,bid) = - WORK7(i,j) * WORK6(i,j)  &
+                          * ( WORK1(i,j,2) + TLT%INTERIOR_DEPTH(i,j,bid)  &
+                             * WORK2(i,j,2) )                             &
+                         + reference_depth(kk) * WORK5(i,j)               &
+                          * ( c2 * WORK1(i,j,2) + TLT%THICKNESS(i,j,bid)  &
+                                       * WORK2(i,j,2) )
+
+                      SF_SLY(i,j,1,kk,k,bid) = - WORK7(i,j) * WORK6(i,j)  &
+                          * ( WORK3(i,j,1) + TLT%INTERIOR_DEPTH(i,j,bid)  &
+                             * WORK4(i,j,1) )                             &
+                         + reference_depth(kk) * WORK5(i,j)               &
+                          * ( c2 * WORK3(i,j,1) + TLT%THICKNESS(i,j,bid)  &
+                             * WORK4(i,j,1) )
+
+                      SF_SLY(i,j,2,kk,k,bid) = - WORK7(i,j) * WORK6(i,j)  &
+                          * ( WORK3(i,j,2) + TLT%INTERIOR_DEPTH(i,j,bid)  &
+                             * WORK4(i,j,2) )                             &
+                         + reference_depth(kk) * WORK5(i,j)               &
+                          * ( c2 * WORK3(i,j,2) + TLT%THICKNESS(i,j,bid)  &
+                             * WORK4(i,j,2) )
+ 
+                  endif
+
 
 !-----------------------------------------------------------------------
 !
@@ -3813,26 +4577,57 @@
 !
 !-----------------------------------------------------------------------
 
-          where ( reference_depth(kk) > TLT%INTERIOR_DEPTH(:,:,bid)  & 
-                  .and.  k <= KMT(:,:,bid) )
+                 if ( reference_depth(kk) > TLT%INTERIOR_DEPTH(i,j,bid)  & 
+                       .and.  k <= KMT(i,j,bid) ) then
 
-            SF_SLX(:,:,1,kk,k,bid) =  KAPPA_THIC(:,:,kk,k,bid)  &
-                              * SLX(:,:,1,kk,k,bid) * dz(k)
+                !if(my_task == master_task .and. nsteps_total == 6 .and. k == 1 .and. i == 3 .and. j == 7 .and. kk == 1)then
 
-            SF_SLX(:,:,2,kk,k,bid) =  KAPPA_THIC(:,:,kk,k,bid)  &
-                              * SLX(:,:,2,kk,k,bid) * dz(k)
 
-            SF_SLY(:,:,1,kk,k,bid) =  KAPPA_THIC(:,:,kk,k,bid)  &
-                              * SLY(:,:,1,kk,k,bid) * dz(k)
+                 !print *,"Original3"
+                 !print *,"reference_depth(kk)",reference_depth(kk)
+                 !print *,"TLT%DIABATIC_DEPTH(i,j,bid)",TLT%INTERIOR_DEPTH(i,j,bid)
+                 !print *," KMT(i,j,bid)", KMT(i,j,bid)
+                 !print *,"KAPPA_THIC(i,j,kk,k,bid)",KAPPA_THIC(i,j,kk,k,bid)
+                 !print *,"dz(k)",dz(k)
+                 !print *,"SF_SLX(i,j,1,kk,k,bid)",SF_SLX(i,j,1,kk,k,bid)
 
-            SF_SLY(:,:,2,kk,k,bid) =  KAPPA_THIC(:,:,kk,k,bid)  &
-                              * SLY(:,:,2,kk,k,bid) * dz(k)
+                 !endif
 
-          endwhere
+
+                     SF_SLX(i,j,1,kk,k,bid) =  KAPPA_THIC(i,j,kk,k,bid)  &
+                                       * SLX(i,j,1,kk,k,bid) * dz(k)
+
+                     SF_SLX(i,j,2,kk,k,bid) =  KAPPA_THIC(i,j,kk,k,bid)  &
+                                       * SLX(i,j,2,kk,k,bid) * dz(k)
+
+                     SF_SLY(i,j,1,kk,k,bid) =  KAPPA_THIC(i,j,kk,k,bid)  &
+                                       * SLY(i,j,1,kk,k,bid) * dz(k)
+
+                     SF_SLY(i,j,2,kk,k,bid) =  KAPPA_THIC(i,j,kk,k,bid)  &
+                                       * SLY(i,j,2,kk,k,bid) * dz(k)
+
+                endif
+
+             enddo
+          enddo
 
         enddo  ! end of kk-loop
 
       enddo    ! end of k-loop
+
+      !if(my_task==master_task)then
+
+       !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write",form="unformatted")
+       !write(10),SF_SLX,SF_SLY
+       !close(10)
+
+      !endif
+     
+
+      !end_time = omp_get_wtime()
+
+      !print *,"Time at merged_stream 2 is ",end_time - start_time
+
 
 !-----------------------------------------------------------------------
 !EOC
@@ -3844,6 +4639,7 @@
 ! !IROUTINE: apply_vertical_profile_to_isop_hor_diff 
 ! !INTERFACE:
 
+      !dir$ attributes offload:mic :: apply_vertical_profile_to_isop_hor_diff   
       subroutine apply_vertical_profile_to_isop_hor_diff ( this_block ) 
 
 ! !DESCRIPTION:
@@ -3869,7 +4665,7 @@
 
       integer (int_kind) :: &
          k, kk,     &        ! loop indices
-         bid                 ! local block address for this sub block
+         bid,i,j             ! local block address for this sub block
 
       real (r8), dimension(2) :: &
          reference_depth
@@ -3881,7 +4677,7 @@
 !     start of tapering
 !
 !-----------------------------------------------------------------------
-
+      !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(i,j,k,kk,reference_depth)num_threads(60)
       do k=1,km
 
         reference_depth(ktp) = zt(k) - p25 * dz(k)
@@ -3894,11 +4690,16 @@
 !     diabatic region: no isopycnal diffusion 
 !
 !-----------------------------------------------------------------------
+           do j=1,ny_block
+              do i=1,nx_block
 
-          where ( reference_depth(kk) <= TLT%DIABATIC_DEPTH(:,:,bid)  &
-                  .and.  k <= KMT(:,:,bid) ) 
-            KAPPA_ISOP(:,:,kk,k,bid) = c0
-          endwhere
+                 if ( reference_depth(kk) <= TLT%DIABATIC_DEPTH(i,j,bid)  &
+                 .and.  k <= KMT(i,j,bid) ) then
+
+                    KAPPA_ISOP(i,j,kk,k,bid) = c0
+
+                endif
+  
 
 !-----------------------------------------------------------------------
 !
@@ -3907,34 +4708,68 @@
 !
 !-----------------------------------------------------------------------
 
-          where ( reference_depth(kk) > TLT%DIABATIC_DEPTH(:,:,bid)   &
-            .and.  reference_depth(kk) <= TLT%INTERIOR_DEPTH(:,:,bid) &
-            .and.  k <= KMT(:,:,bid)  .and.                           &
-                   TLT%THICKNESS(:,:,bid) > eps )
+                if( reference_depth(kk) > TLT%DIABATIC_DEPTH(i,j,bid)   &
+              .and.  reference_depth(kk) <= TLT%INTERIOR_DEPTH(i,j,bid) &
+              .and.  k <= KMT(i,j,bid)  .and.                           &
+                     TLT%THICKNESS(i,j,bid) > eps ) then
 
-            HOR_DIFF(:,:,kk,k,bid) = ( TLT%INTERIOR_DEPTH(:,:,bid)  &
-                  - reference_depth(kk) ) * HOR_DIFF(:,:,kk,k,bid)  &
-                  / TLT%THICKNESS(:,:,bid)
-            KAPPA_ISOP(:,:,kk,k,bid) = ( reference_depth(kk)        &
-                                   - TLT%DIABATIC_DEPTH(:,:,bid) )  &
-                 * KAPPA_ISOP(:,:,kk,k,bid) / TLT%THICKNESS(:,:,bid)
+                     HOR_DIFF(i,j,kk,k,bid) = ( TLT%INTERIOR_DEPTH(i,j,bid)  &
+                           - reference_depth(kk) ) * HOR_DIFF(i,j,kk,k,bid)  &
+                                 / TLT%THICKNESS(i,j,bid)
 
-          endwhere
+                     KAPPA_ISOP(i,j,kk,k,bid) = ( reference_depth(kk)        &
+                                            - TLT%DIABATIC_DEPTH(i,j,bid) )  &
+                          * KAPPA_ISOP(i,j,kk,k,bid) / TLT%THICKNESS(i,j,bid)
+
+                 endif
 
 !-----------------------------------------------------------------------
 !
 !     interior region: no horizontal diffusion
 !
 !-----------------------------------------------------------------------
+                 !if(my_task == master_task .and. nsteps_total == 1 .and. k == 1 .and. i == 3 .and. j == 5 .and. kk == ktp)then
 
-          where ( reference_depth(kk) > TLT%INTERIOR_DEPTH(:,:,bid)  &
-                  .and.  k <= KMT(:,:,bid) )
-            HOR_DIFF(:,:,kk,k,bid) = c0
-          endwhere
+                 !print *,"original before",HOR_DIFF(i,j,kk,k,bid)
+
+                 !endif
+
+                 if ( reference_depth(kk) > TLT%INTERIOR_DEPTH(i,j,bid)  &
+                  .and.  k <= KMT(i,j,bid) ) then
+
+                          HOR_DIFF(i,j,kk,k,bid) = c0
+                 endif
+
+                 !if(my_task == master_task .and. nsteps_total == 1 .and. k == 1 .and. i == 3 .and. j == 5 .and. kk == ktp)then
+
+
+                 !print *,"Original"
+                 !print *,"HOR_UNIFIED(i,j,ktp,k,bid)",HOR_DIFF(i,j,kk,k,bid)
+                 !print *,"reference_depth(kk)",reference_depth(kk)
+                 !print *,"TLT_UNIFIED%INTERIOR_DEPTH(i,j,bid)",TLT%INTERIOR_DEPTH(i,j,bid)
+                 !print *,"KMT_UNIFIED(i,j,bid)",KMT(i,j,bid)
+
+                 !endif
+
+
+
+              enddo
+           enddo
 
         enddo  ! end of kk-loop
 
       enddo    ! end of k-loop
+
+
+     !print *,KAPPA_ISOP(45,45,1,45,bid),HOR_DIFF(45,45,1,45,bid) 
+     !if(my_task==master_task)then
+
+       !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write",form="unformatted")
+       !write(10),HOR_DIFF,KAPPA_ISOP
+       !close(10)
+
+     !endif
+
 
 !-----------------------------------------------------------------------
 !EOC

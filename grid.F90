@@ -70,6 +70,7 @@
       sfc_layer_rigid    = 2,  &! rigid lid surface layer
       sfc_layer_oldfree  = 3    ! old free surface form
 
+   !dir$ attributes offload:mic :: partial_bottom_cells
    logical (POP_logical), public ::    &
       partial_bottom_cells   ! flag for partial bottom cells
 
@@ -90,6 +91,10 @@
 
    !*** dimension(1:km)
 
+   !dir$ attributes offload:mic :: dz
+   !dir$ attributes offload:mic :: zw
+   !dir$ attributes offload:mic :: dzr
+   !dir$ attributes offload:mic :: zt
    real (POP_r8), dimension(km), public :: &
       dz                ,&! thickness of layer k
       c2dz              ,&! 2*dz
@@ -99,12 +104,25 @@
 
    !*** dimension(0:km)
 
+   !dir$ attributes offload:mic :: dzw
+   !dir$ attributes offload:mic :: dzwr
    real (POP_r8), dimension(0:km), public :: &
       dzw, dzwr          ! midpoint of k to midpoint of k+1
                          !   and its reciprocal
 
    !*** geometric 2d arrays
 
+   !dir$ attributes offload:mic :: DXT
+   !dir$ attributes offload:mic :: DYT
+   !dir$ attributes offload:mic :: DXTR
+   !dir$ attributes offload:mic :: DYTR
+   !dir$ attributes offload:mic :: TAREA_R
+   !dir$ attributes offload:mic :: HUW
+   !dir$ attributes offload:mic :: HUS  
+   !dir$ attributes offload:mic :: HTN
+   !dir$ attributes offload:mic :: HTE
+   !dir$ attributes offload:mic :: FCORT
+   !dir$ attributes offload:mic :: TLAT
    real (POP_r8), dimension(nx_block,ny_block,max_blocks_clinic), public :: &
       DXU, DYU            ,&! {x,y} spacing centered at U points
       DXT, DYT            ,&! {x,y} spacing centered at T points
@@ -125,11 +143,13 @@
 
    !*** 3d depth fields for partial bottom cells
 
+   !dir$ attributes offload:mic :: DZT
    real (POP_r8), dimension(:,:,:,:), allocatable, public :: &
       DZU, DZT               ! thickness of U,T cell for pbc
 
    !*** 2d landmasks
 
+   !dir$ attributes offload : mic :: KMT
    integer (POP_i4), dimension(nx_block,ny_block,max_blocks_clinic), &
       public :: &
       KMT            ,&! k index of deepest grid cell on T grid
@@ -145,6 +165,8 @@
       RCALCT         ,&! real equiv of CALCT,U to use as more
       RCALCU           !   efficient multiplicative mask
 
+   !dir$ attributes offload : mic :: KMTN
+   !dir$ attributes offload : mic :: KMTE
    integer (POP_i4), dimension(nx_block,ny_block,max_blocks_clinic), &
       public :: &
       KMTN,KMTS,KMTE,KMTW   ,&! KMT field at neighbor points
@@ -3168,6 +3190,7 @@
 ! !IROUTINE: ugrid_to_tgrid
 ! !INTERFACE:
 
+ !dir$ attributes offload:mic :: ugrid_to_tgrid 
  subroutine ugrid_to_tgrid(ARRAY_TGRID, ARRAY_UGRID, iblock)
 
 ! !DESCRIPTION:

@@ -128,8 +128,11 @@
    type (tavg_field_desc_ccsm), dimension(max_avail_tavg_fields) :: &
       avail_tavg_fields
 
-   integer (int_kind) ::                &
-      num_avail_tavg_fields      = 0,   &! current number of defined fields
+   !dir$ attributes offload:mic :: num_avail_tavg_fields
+   integer (int_kind) ,public ::        &
+      num_avail_tavg_fields      = 0    ! current number of defined fields
+
+   integer (int_kind) ::                &! current number of defined fields
       tavg_num_requested_fields,        &! number of fields requested
       tavg_num_contents_lines            ! number of lines in tavg_contents file
 
@@ -137,8 +140,8 @@
 !
 !  tavg stream information (support for separate tavg output "streams")
 !
-!-----------------------------------------------------------------------
-
+!----------------------------------------------------------------------
+   !dir$ attributes offload:mic :: ltavg_on
    type, public :: tavg_stream
       character (char_len) :: infile
       character (char_len) :: outfile
@@ -155,7 +158,7 @@
       integer (int_kind)   :: tavg_offset_month
       integer (int_kind)   :: tavg_offset_day
       integer (int_kind)   :: tavg_num_time_slices
-      logical (log_kind)   :: ltavg_on
+      logical (log_kind),public :: ltavg_on
       logical (log_kind)   :: ltavg_file_is_open
       logical (log_kind)   :: ltavg_fmt_in_nc
       logical (log_kind)   :: ltavg_fmt_out_nc
@@ -2974,6 +2977,7 @@
 ! !IROUTINE: accumulate_tavg_now
 ! !INTERFACE:
 
+ !dir$ attributes offload:mic :: accumulate_tavg_now 
  function accumulate_tavg_now(field_id)
 
 ! !DESCRIPTION:
@@ -3627,6 +3631,7 @@
 ! !IROUTINE: tavg_requested
 ! !INTERFACE:
 
+ !dir$ attributes offload : mic :: tavg_requested
  function tavg_requested(id)
 
 ! !DESCRIPTION:
@@ -3660,10 +3665,11 @@
 !-----------------------------------------------------------------------
 
    if (id < 1 .or. id > num_avail_tavg_fields) then
-      write(stdout,*) '(tavg_requested) id = ', id; call POP_IOUnitsFlush(stdout)
-      exit_string = 'FATAL ERROR: invalid tavg id'
-      call document ('tavg_requested', exit_string)
-      call exit_POP (sigAbort,exit_string,out_unit=stdout)
+      !write(stdout,*) '(tavg_requested) id = ', id; call POP_IOUnitsFlush(stdout)
+      !exit_string = 'FATAL ERROR: invalid tavg id'
+      !call document ('tavg_requested', exit_string)
+      !call exit_POP (sigAbort,exit_string,out_unit=stdout)
+      print *, "error at tavg_requested" 
    endif
 
    if (avail_tavg_fields(id)%buf_loc > 0) then
@@ -3739,6 +3745,7 @@
 ! !IROUTINE: tavg_in_which_stream(id)
 ! !INTERFACE:
 
+ !dir$ attributes offload:mic :: tavg_in_which_stream 
  function tavg_in_which_stream(id)
 
 ! !DESCRIPTION:
@@ -3773,11 +3780,12 @@
    stream_number = avail_tavg_fields(id)%stream_number
 
    if (stream_number <= 0 .or. stream_number > max_avail_tavg_streams) then
-     call document ('tavg_in_which_stream', 'id', id)
-     write(stdout,*) '(tavg_in_which_stream) stream_number = ', stream_number
-     exit_string = 'FATAL ERROR: not in any stream'
-     call document ('tavg_in_which_stream', exit_string)
-     call exit_POP (sigAbort,exit_string,out_unit=stdout)
+     !call document ('tavg_in_which_stream', 'id', id)
+     !write(stdout,*) '(tavg_in_which_stream) stream_number = ', stream_number
+     !exit_string = 'FATAL ERROR: not in any stream'
+     !call document ('tavg_in_which_stream', exit_string)
+     !call exit_POP (sigAbort,exit_string,out_unit=stdout)
+     print *,"FATAL ERROR: not in any stream"
    endif
 
    tavg_in_which_stream = stream_number

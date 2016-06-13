@@ -33,8 +33,8 @@
 
 ! !PUBLIC DATA MEMBERS:
 
-   !dir$ attributes offload:mic :: my_task
    !dir$ attributes offload:mic :: master_task
+   !dir$ attributes offload:mic :: my_task
    integer (int_kind), public :: &
       MPI_COMM_OCN,             &! MPI communicator for ocn comms
       mpi_dbl,                  &! MPI type for dbl_kind

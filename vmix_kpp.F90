@@ -36,6 +36,7 @@
    use registry
    use prognostic
    use time_management
+   use omp_lib
 
    implicit none
    private
@@ -51,6 +52,9 @@
 
 ! !PUBLIC DATA MEMBERS:
 
+   !dir$ attributes offload:mic :: KPP_HBLT
+   !dir$ attributes offload:mic :: BOLUS_SP
+   !dir$ attributes offload:mic :: HMXL
    real (r8), dimension(:,:,:), allocatable, public :: & 
       HMXL,               &! mixed layer depth
       KPP_HBLT,           &! boundary layer depth
@@ -75,6 +79,7 @@
       bckgrnd_vvc,    &! background value for viscosity
       bckgrnd_vdc      ! background value for diffusivity
 
+   !dir$ attributes offload:mic :: linertial
    logical (log_kind) :: &
       lrich,             &! flag for computing Ri-dependent mixing
       ldbl_diff,         &! flag for computing double-diffusive mixing
@@ -185,8 +190,13 @@
 !
 !-----------------------------------------------------------------------
 
+   !dir$ attributes offload : mic :: zgrid
+
+   real (r8), dimension(:), allocatable, public :: &
+      zgrid                 ! depth at cell interfaces
+
+
    real (r8), dimension(:), allocatable :: & 
-      zgrid,               &! depth at cell interfaces
       hwide                 ! layer thickness at interfaces
 
 !-----------------------------------------------------------------------
@@ -3034,6 +3044,7 @@
 ! !IROUTINE: smooth_hblt
 ! !INTERFACE:
 
+ !dir$ attributes offload:mic :: smooth_hblt 
  subroutine smooth_hblt (overwrite_hblt, use_hmxl, &
                          bid, HBLT, KBL, SMOOTH_OUT)
 
@@ -3092,6 +3103,8 @@
      cc, cw, ce, cn, cs, &  ! averaging weights
      ztmp                   ! temp for level depth
 
+   real (r8) start_time,end_time
+
 !-----------------------------------------------------------------------
 !
 !     consistency checks 
@@ -3101,22 +3114,26 @@
    if ( overwrite_hblt  .and.  ( .not.present(KBL)  .or.        &
                                  .not.present(HBLT) ) ) then      
      message = 'incorrect subroutine arguments for smooth_hblt, error # 1'
-     call exit_POP (sigAbort, trim(message))
+     print *,message
+     !call exit_POP (sigAbort, trim(message))
    endif
 
    if ( .not.overwrite_hblt  .and.  .not.present(SMOOTH_OUT) ) then 
+     print *,message 
      message = 'incorrect subroutine arguments for smooth_hblt, error # 2'
-     call exit_POP (sigAbort, trim(message))
+     !call exit_POP (sigAbort, trim(message))
    endif
 
    if ( use_hmxl .and. .not.present(SMOOTH_OUT) ) then          
      message = 'incorrect subroutine arguments for smooth_hblt, error # 3'
-     call exit_POP (sigAbort, trim(message))
+     print *,message
+     !call exit_POP (sigAbort, trim(message))
    endif
 
    if ( overwrite_hblt  .and.  use_hmxl ) then                  
      message = 'incorrect subroutine arguments for smooth_hblt, error # 4'
-     call exit_POP (sigAbort, trim(message))
+     print *,message 
+     !call exit_POP (sigAbort, trim(message))
    endif
 
 !-----------------------------------------------------------------------
@@ -3126,6 +3143,7 @@
 !
 !-----------------------------------------------------------------------
 
+
    if ( use_hmxl ) then
      WORK2 = HMXL(:,:,bid)
    else
@@ -3133,6 +3151,7 @@
    endif
 
    WORK1 = WORK2
+
    do j=2,ny_block-1
      do i=2,nx_block-1
        if ( KMT(i,j,bid) /= 0 ) then
@@ -3166,7 +3185,9 @@
      enddo
    enddo
 
+
    do k=1,km
+     !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(ztmp,j,i)NUM_THREADS(60)
      do j=2,ny_block-1
        do i=2,nx_block-1
 
@@ -3183,11 +3204,14 @@
 
        enddo
      enddo
+     !!$OMP END PARALLEL DO
    enddo
 
    if ( overwrite_hblt  .and.  .not.use_hmxl ) then
 
      HBLT = WORK2
+
+     start_time = omp_get_wtime()
 
      do k=1,km
        do j=2,ny_block-1
@@ -3213,6 +3237,7 @@
      SMOOTH_OUT = WORK2
 
    endif
+ 
 
 !-----------------------------------------------------------------------
 

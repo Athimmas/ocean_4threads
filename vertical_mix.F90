@@ -54,12 +54,14 @@
              convad, impvmixt_tavg
 
 ! !PUBLIC DATA MEMBERS:
-
+   
+   !dir$ attributes offload : mic :: VDC
    real (r8), dimension(:,:,:,:,:), allocatable, public, target :: &
       VDC                 ! tracer diffusivity - public to allow
                           ! possible modification by Gent-McWilliams
                           ! horizontal mixing parameterization
 
+   !dir$ attributes offload:mic :: VDC_GM
    real (r8), dimension(:,:,:,:), allocatable, public, target :: &
       VDC_GM              ! Gent-McWilliams contribution to VDC
 
@@ -68,9 +70,11 @@
       vmix_type_rich  = 2,  & ! mixing parameterization
       vmix_type_kpp   = 3
 
+   !dir$ attributes offload:mic :: vmix_itype
    integer (int_kind), public :: &
       vmix_itype              ! users choice for vmix parameterization
 
+   !dir$ attributes offload:mic :: implicit_vertical_mix
    logical (log_kind), public :: &
       implicit_vertical_mix   ! flag for computing vertical mixing
                               ! implicitly in time

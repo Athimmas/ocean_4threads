@@ -18,12 +18,13 @@
    use registry
    use blocks
    use kinds_mod
-   use grid
+   use grid, only: KMTE, KMT, KMTN
    use constants
    use state_mod
    use time_management
    use domain_size, only: km, nt
    use domain, only: nblocks_clinic
+   use omp_lib
 
    implicit none
    private
@@ -39,7 +40,17 @@
 !  variables to save from one call to next
 !
 !-----------------------------------------------------------------------
-
+   !dir$ attributes offload:mic :: RX
+   !dir$ attributes offload:mic :: RY
+   !dir$ attributes offload:mic :: TX
+   !dir$ attributes offload:mic :: TY
+   !dir$ attributes offload:mic :: TZ
+   !dir$ attributes offload:mic :: SLX
+   !dir$ attributes offload:mic :: SLY
+   !dir$ attributes offload:mic :: RZ_SAVE
+   !dir$ attributes offload:mic :: HXY
+   !dir$ attributes offload:mic :: HYX 
+   
    real (r8), dimension(:,:,:,:,:), allocatable, public :: &
       RX,RY,            &     ! Dx(rho), Dy(rho)
       TX,TY,TZ               ! tracer differences in each direction
@@ -145,6 +156,7 @@
 ! !IROUTINE: tracer_diffs_and_isopyc_slopes
 ! !INTERFACE:
 
+   !dir$ attributes offload : mic :: tracer_diffs_and_isopyc_slopes
    subroutine tracer_diffs_and_isopyc_slopes (TMIX, this_block)
 
 ! !DESCRIPTION:
@@ -168,23 +180,39 @@
 
       integer (int_kind), parameter :: &
          ieast  = 1, iwest  = 2,       &
-	 jnorth = 1, jsouth = 2
+         jnorth = 1, jsouth = 2
       integer (int_kind) :: &
          i,j,n,kk,k,        &! dummy loop counters
-	 ktmp,              &! array indices
+         ktmp,              &! array indices
          kn, ks,            &! cyclic pointers for 2-level local arrays
          bid                 ! local block address for this sub block
-      real (r8), dimension(nx_block,ny_block) :: &
-         KMASK, KMASKE, KMASKN,   &! ocean mask
-	 DRDT, DRDS                ! expansion coefficients d(rho)/dT,S
+      !real (r8), dimension(nx_block,ny_block) :: &
+      !   KMASKE, KMASKN    ! ocean mask
+        !DRDT, DRDS              ! expansion coefficients d(rho)/dT,S
       real (r8), dimension(nx_block,ny_block,2) :: &
-         TXP, TYP, TZP, TEMP
+         TXP, TYP, TZP , TEMP
+
       real (r8), dimension(nx_block,ny_block) :: & 
          RZ                  ! Dz(rho)
       integer (int_kind), parameter :: &
          ktp = 1, kbt = 2     ! refer to the top and bottom halves of a 
                               ! grid cell, respectively
 
+      real (r8), dimension(nx_block,ny_block,km) :: &
+         DRDT, DRDS                ! expansion coefficients d(rho)/dT,S
+
+      real (r8) :: tempi,tempip1,tempj,tempjp1
+ 
+      real (r8) :: temp_ksi,temp_ksip1,temp_ksj,temp_ksjp1,kmask,kmaske,kmaskn
+
+      real (r8) :: txpim1,kmaskeim1,temp_ksim1,txim1
+
+      real (r8) :: typjm1,kmasknjm1,temp_ksjm1,tyjm1        
+
+      real (r8) start_time,end_time
+
+      logical(log_kind) :: match
+      
 !-----------------------------------------------------------------------
 !
 !  register tracer_diffs_and_isopyc_slopes
@@ -212,9 +240,26 @@
         kn = 1
         ks = 2
 
+        !start_time = omp_get_wtime()  
+
+        !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(kk)NUM_THREADS(60) 
         do kk=1,km
 
-          KMASK = merge(c1, c0, kk < KMT(:,:,bid))
+        call state (kk, kk, TMIX(:,:,kk,1), TMIX(:,:,kk,2),  &
+                     this_block, DRHODT=DRDT(:,:,kk), DRHODS=DRDS(:,:,kk))
+
+        enddo 
+
+        !end_time = omp_get_wtime()
+
+        !print *,"Time at first part is",end_time - start_time
+
+        kk=1
+
+            !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(j,i,KMASKE,KMASKN,tempi,tempip1,tempj,tempjp1)num_threads(60)
+            do j=1,ny_block
+              do i=1,nx_block
+
 
 !-----------------------------------------------------------------------
 !
@@ -222,82 +267,90 @@
 !
 !-----------------------------------------------------------------------
 
-          if ( kk == 1 ) then
-
-            do j=1,ny_block
-              do i=1,nx_block
                 if ( kk <= KMT(i,j,bid) .and. kk <= KMTE(i,j,bid) ) then
-                  KMASKE(i,j) = c1
+                  KMASKE = c1
                 else
-                  KMASKE(i,j) = c0
+                  KMASKE = c0
                 endif
                 if ( kk <= KMT(i,j,bid) .and. kk <= KMTN(i,j,bid) ) then
-                  KMASKN(i,j) = c1
+                  KMASKN = c1
                 else
-                  KMASKN(i,j) = c0
+                  KMASKN = c0
                 endif
                 TEMP(i,j,kn) = max(-c2, TMIX(i,j,kk,1))
-              enddo
-            enddo
 
-            do j=1,ny_block
-              do i=1,nx_block-1
-                TXP(i,j,kn) = KMASKE(i,j) * (TEMP(i+1,j,kn)  &
-                                            -TEMP(i,  j,kn))
-              enddo
-            enddo
+                if(i <= nx_block-1) then 
+                 tempi = max(-c2, TMIX(i,j,kk,1))
+                 tempip1 = max(-c2, TMIX(i+1,j,kk,1))
+                 TXP(i,j,kn) = KMASKE * (tempip1  &
+                                            -tempi)
+                 endif 
 
-            do j=1,ny_block-1
-              do i=1,nx_block
-                TYP(i,j,kn) = KMASKN(i,j) * (TEMP(i,j+1,kn)  &
-                                            -TEMP(i,j,  kn))
-              enddo
-            enddo
+                if(j <= ny_block-1)then
+                 tempjp1 = max(-c2, TMIX(i,j+1,kk,1))
+                 tempj = max(-c2, TMIX(i,j,kk,1))                
+                 TYP(i,j,kn) = KMASKN * (tempjp1  &
+                                             -tempj )
+                endif   
 
-            do n=1,nt
-              do j=1,ny_block
-                do i=1,nx_block-1
-                  TX(i,j,kk,n,bid) = KMASKE(i,j)  &
+                do n=1,nt
+                  if(i <= nx_block-1)&
+                  TX(i,j,kk,n,bid) = KMASKE  &
                               * (TMIX(i+1,j,kk,n) - TMIX(i,j,kk,n))
-                enddo
-              enddo
 
-              do j=1,ny_block-1
-                do i=1,nx_block
-                  TY(i,j,kk,n,bid) = KMASKN(i,j)  &
+
+                   if(j <= ny_block-1)& 
+                       TY(i,j,kk,n,bid) = KMASKN  &
                               * (TMIX(i,j+1,kk,n) - TMIX(i,j,kk,n))
                 enddo
+
+                RX(i,j,ieast ,kk,bid) = DRDT(i,j,kk) * TXP(i,j,kn)  &
+                                         + DRDS(i,j,kk) * TX(i,j,kk,2,bid) 
+
+                RY(i,j,jnorth,kk,bid) = DRDT(i,j,kk) * TYP(i,j,kn)  &
+                                         + DRDS(i,j,kk) * TY(i,j,kk,2,bid) 
+
+
+                 if(i >= 2) then
+                   RX(i,j,iwest,kk,bid) = DRDT(i,j,kk) * TXP(i-1,j,kn)  &
+                                     + DRDS(i,j,kk) * TX (i-1,j,kk,2,bid)
+                 endif 
+
+                  if(j >= 2)then 
+                     RY(i,j,jsouth,kk,bid) = DRDT(i,j,kk) * TYP(i,j-1,kn)  &
+                                      + DRDS(i,j,kk) * TY (i,j-1,kk,2,bid)
+                  endif 
               enddo
             enddo
 
-!     D_T(rho) & D_S(rho) at level 1
 
-            call state (kk, kk, TMIX(:,:,kk,1), TMIX(:,:,kk,2),  &
-                        this_block, DRHODT=DRDT, DRHODS=DRDS) 
 
-!     RX = Dx(rho) = DRDT*Dx(T) + DRDS*Dx(S)
-!     RY = Dy(rho) = DRDT*Dy(T) + DRDS*Dy(S)
+       !start_time = omp_get_wtime()
+       match = .true.
+!-------------------------------------------------------------------------
+!
+!
+!      when kk is 1 ends
+!
+!
+!-------------------------------------------------------------------------
 
-            RX(:,:,ieast ,kk,bid) = DRDT * TXP(:,:,kn)  &
-                                  + DRDS * TX(:,:,kk,2,bid) 
-            RY(:,:,jnorth,kk,bid) = DRDT * TYP(:,:,kn)  &
-                                  + DRDS * TY(:,:,kk,2,bid) 
+        do kk=1,km
 
+            if ( kk < km ) then
+
+            !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(j,i,temp_ksi,temp_ksip1,temp_ksj,temp_ksjp1,kmask,kmaske,kmaskn,temp_ksim1,kmaskeim1) &
+            !!$OMP PRIVATE(txpim1,txim1,temp_ksjm1,kmasknjm1,typjm1,tyjm1)NUM_THREADS(60)
             do j=1,ny_block
-              do i=2,nx_block
-                RX(i,j,iwest,kk,bid) = DRDT(i,j) * TXP(i-1,j,kn)  &
-                                     + DRDS(i,j) * TX (i-1,j,kk,2,bid)
-              enddo
-            enddo
-
-            do j=2,ny_block
               do i=1,nx_block
-                RY(i,j,jsouth,kk,bid) = DRDT(i,j) * TYP(i,j-1,kn)  &
-                                      + DRDS(i,j) * TY (i,j-1,kk,2,bid)
-              enddo
-            enddo
+                 KMASK = merge(c1, c0, kk < KMT(i,j,bid))
 
-          endif  ! end of kk == 1 if statement
+
+!-----------------------------------------------------------------------
+!
+!     compute RX=Dx(rho) and RY=Dy(rho) for all vertical levels. 
+!
+!-----------------------------------------------------------------------
 
 !-----------------------------------------------------------------------
 !
@@ -307,25 +360,31 @@
 !
 !-----------------------------------------------------------------------
 
-          if ( kk < km ) then
 
-            TEMP(:,:,ks) = max(-c2, TMIX(:,:,kk+1,1))
+                 TEMP(i,j,ks) = max(-c2, TMIX(i,j,kk+1,1))
+              
+                 TZ(i,j,kk+1,1,bid) = TMIX(i,j,kk  ,1) - TMIX(i,j,kk+1,1)
+                 TZ(i,j,kk+1,2,bid) = TMIX(i,j,kk  ,2) - TMIX(i,j,kk+1,2) 
+                 TZP(i,j,ks) = TEMP(i,j,kn) - TEMP(i,j,ks)
 
-            TZ(:,:,kk+1,1,bid) = TMIX(:,:,kk  ,1) - TMIX(:,:,kk+1,1)
-            TZ(:,:,kk+1,2,bid) = TMIX(:,:,kk  ,2) - TMIX(:,:,kk+1,2) 
-            TZP(:,:,ks) = TEMP(:,:,kn) - TEMP(:,:,ks)
 
 !     RZ = Dz(rho) = DRDT*Dz(T) + DRDS*Dz(S)
 
-            RZ = DRDT * TZP(:,:,ks) + DRDS * TZ (:,:,kk+1,2,bid) 
-            RZ = min(RZ,-eps2)
 
-            if (registry_match('init_gm')) then
-              SLX(:,:,ieast ,kbt,kk,bid) = KMASK * RX(:,:,ieast ,kk,bid) / RZ
-              SLX(:,:,iwest ,kbt,kk,bid) = KMASK * RX(:,:,iwest ,kk,bid) / RZ
-              SLY(:,:,jnorth,kbt,kk,bid) = KMASK * RY(:,:,jnorth,kk,bid) / RZ
-              SLY(:,:,jsouth,kbt,kk,bid) = KMASK * RY(:,:,jsouth,kk,bid) / RZ
-            endif
+                 RZ(i,j) = DRDT(i,j,kk) * TZP(i,j,ks) + DRDS(i,j,kk) * TZ (i,j,kk+1,2,bid) 
+                 RZ(i,j) = min(RZ(i,j),-eps2)
+
+         
+                 !if (match) then 
+
+
+                    SLX(i,j,ieast ,kbt,kk,bid) = KMASK * RX(i,j,ieast ,kk,bid) / RZ(i,j)
+                    SLX(i,j,iwest ,kbt,kk,bid) = KMASK * RX(i,j,iwest ,kk,bid) / RZ(i,j)
+                    SLY(i,j,jnorth,kbt,kk,bid) = KMASK * RY(i,j,jnorth,kk,bid) / RZ(i,j)
+                    SLY(i,j,jsouth,kbt,kk,bid) = KMASK * RY(i,j,jsouth,kk,bid) / RZ(i,j)
+
+
+                 !endif
 
 !-----------------------------------------------------------------------
 !
@@ -333,71 +392,89 @@
 !
 !-----------------------------------------------------------------------
 
-            KMASKE = merge(c1, c0, kk+1 <= KMT(:,:,bid) .and.  &
-                           kk+1 <= KMTE(:,:,bid))
-            KMASKN = merge(c1, c0, kk+1 <= KMT(:,:,bid) .and.  &
-                           kk+1 <= KMTN(:,:,bid))
+                 KMASKE = merge(c1, c0, kk+1 <= KMT(i,j,bid) .and.  &
+                                kk+1 <= KMTE(i,j,bid))
 
-            do j=1,ny_block
-              do i=1,nx_block-1
-                TXP(i,j,ks) = KMASKE(i,j)*(TEMP(i+1,j,ks)  &
-                                         - TEMP(i,j,ks)) 
-              enddo
-            enddo
+                 KMASKN = merge(c1, c0, kk+1 <= KMT(i,j,bid) .and.  &
+                                kk+1 <= KMTN(i,j,bid))
 
-            do j=1,ny_block-1
-              do i=1,nx_block
-                TYP(i,j,ks) = KMASKN(i,j)*(TEMP(i,j+1,ks)  &
-                                         - TEMP(i,j,ks))
-              enddo
-            enddo
 
-            do n=1,nt
-              do j=1,ny_block
-                do i=1,nx_block-1
-                  TX(i,j,kk+1,n,bid) = KMASKE(i,j)  &
+
+                 temp_ksi = max(-c2, TMIX(i,j,kk+1,1))
+                 temp_ksip1 = max(-c2, TMIX(i+1,j,kk+1,1))
+
+                 temp_ksj = max(-c2, TMIX(i,j,kk+1,1))
+                 temp_ksjp1 = max(-c2, TMIX(i,j+1,kk+1,1))
+                 
+
+                 if(i <= nx_block-1)then
+
+                  TXP(i,j,ks) = KMASKE*(temp_ksip1  &
+                                               - temp_ksi) 
+                 endif 
+
+                 if(j <= ny_block-1)then
+                  TYP(i,j,ks) = KMASKN*(temp_ksjp1  &
+                                            - temp_ksj)
+                 
+                 endif 
+
+                 do n=1,nt
+                  if(i <= nx_block-1)&
+                  TX(i,j,kk+1,n,bid) = KMASKE  &
                             * (TMIX(i+1,j,kk+1,n) - TMIX(i,j,kk+1,n))
-                enddo
-              enddo
 
-              do j=1,ny_block-1
-                do i=1,nx_block
-                  TY(i,j,kk+1,n,bid) = KMASKN(i,j)  &
+                  if(j <= ny_block-1)&
+                  TY(i,j,kk+1,n,bid) = KMASKN  &
                             * (TMIX(i,j+1,kk+1,n) - TMIX(i,j,kk+1,n))
-                enddo
-              enddo
-            enddo
+                 enddo
 
-!     D_T(rho) & D_S(rho) at level kk+1
+                 RX(i,j,ieast ,kk+1,bid) = DRDT(i,j,kk+1) * TXP(i,j,ks)  &
+                                         + DRDS(i,j,kk+1) * TX(i,j,kk+1,2,bid) 
+                 RY(i,j,jnorth,kk+1,bid) = DRDT(i,j,kk+1) * TYP(i,j,ks)  &
+                                         + DRDS(i,j,kk+1) * TY(i,j,kk+1,2,bid) 
 
-            call state (kk+1, kk+1, TMIX(:,:,kk+1,1),  &
-                        TMIX(:,:,kk+1,2), this_block,  &
-                        DRHODT=DRDT, DRHODS=DRDS)
+                 if(i >= 2)then
 
-            RX(:,:,ieast ,kk+1,bid) = DRDT * TXP(:,:,ks)  &
-                                    + DRDS * TX(:,:,kk+1,2,bid) 
-            RY(:,:,jnorth,kk+1,bid) = DRDT * TYP(:,:,ks)  &
-                                    + DRDS * TY(:,:,kk+1,2,bid) 
+                 temp_ksim1 = max(-c2, TMIX(i-1,j,kk+1,1))
 
-            do j=1,ny_block
-              do i=2,nx_block
-                RX(i,j,iwest,kk+1,bid) = DRDT(i,j) * TXP(i-1,j,ks)  &
-                                       + DRDS(i,j) * TX (i-1,j,kk+1,2,bid)
-              enddo
-            enddo
+                 kmaskeim1 = merge(c1, c0, kk+1 <= KMT(i-1,j,bid) .and.  &
+                                kk+1 <= KMTE(i-1,j,bid))
 
-            do j=2,ny_block
-              do i=1,nx_block
-                RY(i,j,jsouth,kk+1,bid) = DRDT(i,j) * TYP(i,j-1,ks)  &
-                                        + DRDS(i,j) * TY (i,j-1,kk+1,2,bid)
-              enddo
-            enddo
+                 txpim1 = kmaskeim1 * (temp_ksi - temp_ksim1 ) 
 
-            RZ = DRDT * TZP(:,:,ks) + DRDS * TZ(:,:,kk+1,2,bid) 
-            RZ_SAVE(:,:,kk+1,bid) = min(RZ,c0)
-            RZ = min(RZ,-eps2)
-	    
-            if (registry_match('init_gm')) then
+                 txim1 = kmaskeim1 * (TMIX(i,j,kk+1,2) - TMIX(i-1,j,kk+1,2))                 
+                   
+                 RX(i,j,iwest,kk+1,bid) = DRDT(i,j,kk+1) * txpim1  &
+                                       + DRDS(i,j,kk+1) *  txim1
+
+                 endif
+
+
+                 if(j >= 2) then
+
+                 temp_ksjm1 = max(-c2, TMIX(i,j-1,kk+1,1))
+
+                 kmasknjm1 = merge(c1, c0, kk+1 <= KMT(i,j-1,bid) .and.  &
+                                kk+1 <= KMTN(i,j-1,bid))
+
+                 typjm1 = kmasknjm1 * (temp_ksj - temp_ksjm1 )
+
+                 tyjm1 = kmasknjm1 * (TMIX(i,j,kk+1,2) - TMIX(i,j-1,kk+1,2))
+
+
+                 RY(i,j,jsouth,kk+1,bid) = DRDT(i,j,kk+1) * typjm1  &
+                                        + DRDS(i,j,kk+1) * tyjm1
+
+                 endif
+
+
+                 RZ(i,j) = DRDT(i,j,kk+1) * TZP(i,j,ks) + DRDS(i,j,kk+1) * TZ(i,j,kk+1,2,bid) 
+                 RZ_SAVE(i,j,kk+1,bid) = min(RZ(i,j),c0)
+                 RZ(i,j) = min(RZ(i,j),-eps2)
+
+
+            !if (match) then
 
 !-----------------------------------------------------------------------
 !
@@ -405,13 +482,19 @@
 !
 !-----------------------------------------------------------------------
 
-              where ( kk+1 <= KMT(:,:,bid) )
-                SLX(:,:,ieast, ktp,kk+1,bid) = RX(:,:,ieast ,kk+1,bid) / RZ
-                SLX(:,:,iwest, ktp,kk+1,bid) = RX(:,:,iwest ,kk+1,bid) / RZ
-                SLY(:,:,jnorth,ktp,kk+1,bid) = RY(:,:,jnorth,kk+1,bid) / RZ
-                SLY(:,:,jsouth,ktp,kk+1,bid) = RY(:,:,jsouth,kk+1,bid) / RZ
-              end where
-            endif
+              if ( kk+1 <= KMT(i,j,bid) ) then
+                SLX(i,j,ieast, ktp,kk+1,bid) = RX(i,j,ieast ,kk+1,bid) / RZ(i,j)
+                SLX(i,j,iwest, ktp,kk+1,bid) = RX(i,j,iwest ,kk+1,bid) / RZ(i,j)
+                SLY(i,j,jnorth,ktp,kk+1,bid) = RY(i,j,jnorth,kk+1,bid) / RZ(i,j)
+                SLY(i,j,jsouth,ktp,kk+1,bid) = RY(i,j,jsouth,kk+1,bid) / RZ(i,j)
+              endif
+
+
+           !endif 
+
+              enddo
+            enddo
+
 
 !-----------------------------------------------------------------------
 !
@@ -426,7 +509,31 @@
           ks   = ktmp
 
         enddo   ! end of kk-loop
-	
+
+          if(.not. registry_match('init_gm')) then
+          do n=3,nt 
+           !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(kk,n,j,i)collapse(3)num_threads(60)
+           do kk=1,km-1
+             do j=1,ny_block
+                do i=1,nx_block
+                   TZ(i,j,kk+1,n,bid) = TMIX(i,j,kk  ,n) - TMIX(i,j,kk+1,n)
+                enddo
+             enddo
+            enddo
+           enddo
+          endif
+
+
+
+        !end_time = omp_get_wtime()
+
+        !print *,"Time taken at second time",end_time - start_time
+
+        !if(my_task == master_task)then
+        !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write",form="unformatted")
+        !write(10),SLX,SLY,RX,RY,TX,TY
+        !close(10)
+        !endif
 
 !-----------------------------------------------------------------------
 !

@@ -21,25 +21,30 @@
    use POP_HaloMod 
 
    use kinds_mod, only: int_kind, r8, log_kind, r4, rtavg
-   use blocks, only: nx_block, ny_block, block, get_block
+   use blocks, only: nx_block, ny_block, block, get_block, &
+                     nx_block_unified,ny_block_unified
 !   use distribution, only: 
    use domain_size
    use domain, only: nblocks_clinic, blocks_clinic, POP_haloClinic
    use constants, only: delim_fmt, blank_fmt, p5, field_loc_center,          &
        field_type_scalar, c0, c1, c2, grav, ndelim_fmt,                      &
-       hflux_factor, salinity_factor, salt_to_ppt
+       hflux_factor, salinity_factor, salt_to_ppt,pi,radian
    use prognostic, only: TRACER, UVEL, VVEL, max_blocks_clinic, km, mixtime, &
        RHO, newtime, oldtime, curtime, PSURF, nt
    use broadcast, only: broadcast_scalar
    use communicate, only: my_task, master_task
    use grid, only: FCOR, DZU, HUR, KMU, KMT, sfc_layer_type,                 &
-       sfc_layer_varthick, partial_bottom_cells, dz, DZT, CALCT, dzw, dzr
+       sfc_layer_varthick, partial_bottom_cells, dz, DZT, CALCT, dzw,        &
+       dzr
    use advection, only: advu, advt, comp_flux_vel_ghost
    use pressure_grad, only: lpressure_avg, gradp
-   use horizontal_mix, only: hdiffu, hdifft, iso_impvmixt_tavg
+   use horizontal_mix, only: hdiffu, hdifft,iso_impvmixt_tavg, &
+                             tavg_HDIFE_TRACER,tavg_HDIFN_TRACER,tavg_HDIFB_TRACER, &
+                             lsubmesoscale_mixing
    use vertical_mix, only: vmix_coeffs, implicit_vertical_mix, vdiffu,       &
-       vdifft, impvmixt, impvmixu, impvmixt_correct, convad, impvmixt_tavg
-   use vmix_kpp, only: add_kpp_sources
+       vdifft, impvmixt, impvmixu, impvmixt_correct, convad, impvmixt_tavg,  &
+       vmix_itype,VDC_GM,VDC
+   use vmix_kpp, only: add_kpp_sources,HMXL,KPP_HBLT
    use diagnostics, only: ldiag_cfl, cfl_check, ldiag_global,                &
        DIAG_KE_ADV_2D, DIAG_KE_PRESS_2D, DIAG_KE_HMIX_2D, DIAG_KE_VMIX_2D,   &
        DIAG_TRACER_HDIFF_2D, DIAG_PE_2D, DIAG_TRACER_ADV_2D,                 &
@@ -48,10 +53,11 @@
    use state_mod, only: state
    use ice, only: liceform, ice_formation, increment_tlast_ice
    use time_management, only: mix_pass, leapfrogts, impcor, c2dtu, beta,     &
-       gamma, c2dtt
+       gamma, c2dtt,dt,dtu , nsteps_total,eod_last
    use io_types, only: nml_in, nml_filename, stdout
    use tavg, only: define_tavg_field, accumulate_tavg_field, accumulate_tavg_now, &
-       tavg_method_max, tavg_method_min
+       tavg_method_max, tavg_method_min,num_avail_tavg_fields
+   use time_management, only : nsteps_run
    use forcing_fields, only: STF, SMF, lsmft_avail, SMFT, TFW
    use forcing_shf, only: SHF_QSW
    use forcing_sfwf, only: lfw_as_salt_flx
@@ -65,6 +71,12 @@
    use exit_mod, only: sigAbort, exit_pop, flushm
    use overflows
    use overflow_type
+   use omp_lib
+   use horizontal_mix_unified
+   use hmix_gm, only:kappa_isop_type,kappa_thic_type, kappa_freq,slope_control,&
+                     ah,ah_bolus,ah_bkg_bottom,ah_bkg_srfbl,slm_r,slm_b,use_const_ah_bkg_srfbl,&
+                     transition_layer_on
+   use mix_submeso, only:luse_const_horiz_len_scale,hor_length_scale 
 
    implicit none
    private
@@ -80,6 +92,26 @@
 
    logical (log_kind) :: &
       reset_to_freezing   ! flag to prevent very cold water
+
+
+  !dir$ attributes offload:mic :: TCUR_UNIFIED
+  !dir$ attributes offload:mic :: UCUR_UNIFIED
+  !dir$ attributes offload:mic :: VCUR_UNIFIED   
+   real (r8) ,dimension(:,:,:,:,:),allocatable,save :: TCUR_UNIFIED
+   real (r8) ,dimension(:,:,:,:),allocatable,save :: UCUR_UNIFIED
+   real (r8) ,dimension(:,:,:,:),allocatable,save :: VCUR_UNIFIED 
+
+   integer, save :: done = 1
+
+ !dir$ attributes offload:mic :: WORKN_PHI
+ real (r8), dimension(:,:,:,:,:),public,allocatable :: &
+      WORKN_PHI
+
+  real (r8), dimension(:,:,:,:,:),public,allocatable :: &
+      WORKN_HOST
+
+  
+
 
 !EOP
 !BOC
@@ -135,6 +167,10 @@
       movie_UVEL,         &! movie id for U velocity
       movie_VVEL,         &! movie id for V velocity
       movie_RHO            ! movie id for in-situ density
+
+
+   integer  :: &
+      off_sig = 1       
 
 !EOC
 !***********************************************************************
@@ -424,6 +460,12 @@
 
  call flushm (stdout)
 
+ allocate(TCUR_UNIFIED(nx_block_unified,ny_block_unified,km,nt,1))
+ allocate(UCUR_UNIFIED(nx_block_unified,ny_block_unified,km,1))
+ allocate(VCUR_UNIFIED(nx_block_unified,ny_block_unified,km,1)) 
+ allocate(WORKN_PHI(nx_block_unified,ny_block_unified,nt,km,1))
+ allocate(WORKN_HOST(nx_block,ny_block,nt,km,nblocks_clinic))
+
  end subroutine init_baroclinic
 
 !***********************************************************************
@@ -497,7 +539,7 @@
       i,j,                &! dummy indices for horizontal directions
       n,k,                &! dummy indices for vertical level, tracer
       iblock,             &! counter for block loops
-      kp1,km1              ! level index for k+1, k-1 levels
+      kp1,km1,kk,temp      ! level index for k+1, k-1 levels
 
    real (r8), dimension(nx_block,ny_block) :: & 
       FX,FY,              &! sum of r.h.s. forcing terms
@@ -541,11 +583,64 @@
 !
 !-----------------------------------------------------------------------
 
+  !if(nsteps_run > 1) then
+
+    !!dir$ offload_wait target(mic:0)wait(off_sig)
+
+     !!$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(k,n,this_block,iblock) 
+     !do iblock = 1,nblocks_clinic
+      !this_block = get_block(blocks_clinic(iblock),iblock)
+       !do k=1,km
+        !do n=1,nt
+          !call splitter(WORKN_HOST(:,:,n,k,iblock) , WORKN_PHI(:,:,n,k,1),iblock,this_block)
+       !enddo
+      !enddo
+     !enddo
+  !endif
+
+     !$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(k,n,this_block,iblock)
+     do iblock = 1,nblocks_clinic
+      this_block = get_block(blocks_clinic(iblock),iblock)
+       do k=1,km
+        do n=1,nt
+           call merger(TRACER (:,:,k,n,curtime,iblock) , TCUR_UNIFIED(:,:,k,n,1) , iblock ,this_block)
+        enddo
+       enddo
+     enddo
+
+
+      !$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(k,n,this_block,iblock)
+      do iblock = 1,nblocks_clinic
+      this_block = get_block(blocks_clinic(iblock),iblock)
+       do k=1,km
+          call merger(UVEL(:,:,k,curtime,iblock) , UCUR_UNIFIED(:,:,k,1) ,iblock ,this_block)
+          call merger(VVEL(:,:,k,curtime,iblock) , VCUR_UNIFIED(:,:,k,1) ,iblock ,this_block)
+       enddo
+      enddo
+
+
+   !$OMP PARALLEL DO DEFAULT(SHARED)PRIVATE(k,n,this_block,iblock)
+   do iblock = 1,nblocks_clinic
+      this_block = get_block(blocks_clinic(iblock),iblock)
+
+         do kk=1,km
+             call splitter ( VDC_GM(:,:,kk,iblock), VDC_GM_UNIFIED(:,:,kk,1), iblock, this_block )
+         enddo
+
+   do kk=0,km+1
+    do temp=1,2
+             call splitter ( VDC(:,:,kk,temp,iblock), VDC_UNIFIED(:,:,kk,temp,1),iblock ,this_block )
+    enddo
+   enddo
+
+  enddo
+
+
 
    !$OMP PARALLEL DO PRIVATE(iblock,this_block,k,kp1,km1,WTK,WORK1,factor)
 
    do iblock = 1,nblocks_clinic
-      this_block = get_block(blocks_clinic(iblock),iblock)  
+      this_block = get_block(blocks_clinic(iblock),iblock) 
 
       do k = 1,km 
 
@@ -876,6 +971,7 @@
 
    endif
 
+
 !-----------------------------------------------------------------------
 !
 !  now loop over blocks to do momentum equations
@@ -938,6 +1034,8 @@
                         DHU (:,:,iblock),           &
                         this_block)
 
+ 
+
 !-----------------------------------------------------------------------
 !
 !        store forces temporarily in UVEL(newtime),VVEL(newtime).
@@ -976,6 +1074,8 @@
 
       enddo ! vertical (k) loop
 
+     !!dir$ offload_wait target(mic:1)wait(off_sig)
+         
 !-----------------------------------------------------------------------
 !
 !     normalize sums for vertical averages ([Fx],[Fy]) by dividing
@@ -1692,16 +1792,23 @@
 !-----------------------------------------------------------------------
 
    integer (int_kind) :: &
-      n,                 &! dummy tracer index
-      bid                 ! local_block id
+      n,kk,              &! dummy tracer index
+      bid,i,j,temp        ! local_block id
 
    real (r8), dimension(nx_block,ny_block,nt) :: &
       FT,                &! sum of terms in dT/dt for the nth tracer
-      WORKN               ! work array used for various dT/dt terms 
+      WORKN               ! work array used for various dT/dt terms
+
+   real (r8), dimension(nx_block,ny_block,nt,km) :: &
+      WORKN_PHI_TEMP1               ! work array used for various dT/dt terms
+ 
 
    real (r8), dimension(nx_block,ny_block) :: &
       WORKSW
 
+  integer , save :: itsdone=0
+
+  real (r8) start_time , end_time
 !-----------------------------------------------------------------------
 !
 !  initialize some arrays
@@ -1718,10 +1825,92 @@
 !  horizontal diffusion HDiff(T)
 !
 !-----------------------------------------------------------------------
+   
+
+   if(k==1)then
+
+     call merger( HMXL(:,:,bid), HMXL_UNIFIED(:,:,1), bid , this_block)
+     call merger( KPP_HBLT(:,:,bid), KPP_HBLT_UNIFIED(:,:,1), bid , this_block)
+
+     do kk=1,km
+        call merger( VDC_GM(:,:,kk,bid), VDC_GM_UNIFIED(:,:,kk,1), bid, this_block )
+     enddo
+
+     do kk=0,km+1
+         do temp=1,2
+          call merger( VDC(:,:,kk,temp,bid), VDC_UNIFIED(:,:,kk,temp,1), bid, this_block )
+         enddo
+      enddo
+ 
+    !$omp barrier
+
+    !if(bid == 1) then
+  
+      !if(itsdone == 0) then
+        !!dir$ offload_transfer target(mic:0)nocopy(SLX_UNIFIED,SLY_UNIFIED,SF_SUBM_X_UNIFIED,SF_SUBM_Y_UNIFIED,SF_SLX_UNIFIED,SF_SLY_UNIFIED:alloc_if(.true.) free_if(.false.)) &
+        !!dir$ nocopy(TX_UNIFIED,TY_UNIFIED,TZ_UNIFIED:alloc_if(.true.) free_if(.false.)) &
+        !!dir$ nocopy(UIT_UNIFIED,VIT_UNIFIED,HYXW_UNIFIED,HXYS_UNIFIED,WORKN_PHI :alloc_if(.true.) free_if(.false.) ) &
+        !!dir$ in( KAPPA_ISOP_UNIFIED,KAPPA_THIC_UNIFIED,HOR_DIFF_UNIFIED,KAPPA_VERTICAL_UNIFIED : alloc_if(.true.) free_if(.false.) ) &
+        !!dir$ in(KAPPA_LATERAL_UNIFIED,HXY_UNIFIED,HYX_UNIFIED,RX_UNIFIED,RY_UNIFIED,RB_UNIFIED,RBR_UNIFIED,KMT_UNIFIED,KMTE_UNIFIED,KMTN_UNIFIED:alloc_if(.true.) free_if(.false.)) &
+        !!dir$ in(BUOY_FREQ_SQ_UNIFIED : alloc_if(.true.) free_if(.false.)) &
+        !!dir$ in( SIGMA_TOPO_MASK_UNIFIED,DYT_UNIFIED,DXT_UNIFIED,HUS_UNIFIED,HUW_UNIFIED : alloc_if(.true.) free_if(.false.))
+         !itsdone = itsdone + 1
+       !endif
 
 
-   call hdifft(k, WORKN, TMIX, UMIX, VMIX, this_block)
 
+     !endif
+ 
+
+   if(nsteps_run == 1) then
+
+       do kk=1,km
+          call hdifft(kk, WORKN_HOST(:,:,:,kk,bid), TMIX, UMIX, VMIX, this_block)
+       enddo
+
+   endif
+
+
+        if(bid == 1) then
+
+          !dir$ offload begin target(mic:0)in(kk,TCUR_UNIFIED,UCUR_UNIFIED,VCUR_UNIFIED,this_block,tavg_HDIFE_TRACER,tavg_HDIFN_TRACER,tavg_HDIFB_TRACER) &
+          !dir$ in(lsubmesoscale_mixing,dt,dtu,RZ_SAVE_UNIFIED) &
+          !dir$ in(implicit_vertical_mix,vmix_itype,KPP_HBLT_UNIFIED,HMXL_UNIFIED) &
+          !dir$ in(BL_DEPTH_UNIFIED)&
+          !dir$ in(kappa_isop_type,kappa_thic_type,kappa_freq,slope_control,SLA_SAVE_UNIFIED,nsteps_total, ah,ah_bolus,ah_bkg_bottom,ah_bkg_srfbl) &
+          !dir$ in(slm_r,slm_b,compute_kappa_unified,BUOY_FREQ_SQ_UNIFIED,dz_unified,dzw_unified,dzwr_unified,zw_unified,dzr_unified) &
+          !dir$ in(TAREA_R_UNIFIED,HTN_UNIFIED,HTE_UNIFIED,pi,zt_unified) &
+          !dir$ in(luse_const_horiz_len_scale,hor_length_scale_unified,TIME_SCALE_UNIFIED,efficiency_factor_unified) &
+          !dir$ in(TLT_UNIFIED,my_task,master_task,pressz_unified,sqrt_grav_unified,num_avail_tavg_fields) & 
+          !dir$ in(max_hor_grid_scale_unified,mix_pass,grav,zgrid_unified,DZT_UNIFIED,partial_bottom_cells,ldiag_cfl,radian,eod_last) &
+          !dir$ in(use_const_ah_bkg_srfbl,transition_layer_on)out(WORKN_PHI) &
+          !dir$ inout(VDC_UNIFIED,VDC_GM_UNIFIED) &
+          !dir$ in(SLX_UNIFIED,SLY_UNIFIED,SF_SUBM_X_UNIFIED,SF_SUBM_Y_UNIFIED,KAPPA_ISOP_UNIFIED,KAPPA_THIC_UNIFIED,HOR_DIFF_UNIFIED) &
+          !dir$ in(KAPPA_LATERAL_UNIFIED,SF_SLX_UNIFIED,SF_SLY_UNIFIED,KAPPA_VERTICAL_UNIFIED ) &
+          !dir$ in(HYX_UNIFIED,HXY_UNIFIED,RX_UNIFIED,RY_UNIFIED ) &
+          !dir$ in(TX_UNIFIED,TY_UNIFIED,TZ_UNIFIED,RB_UNIFIED,RBR_UNIFIED,KMT_UNIFIED,KMTE_UNIFIED,KMTN_UNIFIED ) &
+          !dir$ in(SIGMA_TOPO_MASK_UNIFIED,UIT_UNIFIED,VIT_UNIFIED  ) & 
+          !dir$ in(DYT_UNIFIED,DXT_UNIFIED,HYXW_UNIFIED,HXYS_UNIFIED,HUS_UNIFIED,HUW_UNIFIED ) &
+          !dir$ in(HDTK_BUF,TDTK) 
+
+
+               do kk=1,km
+                  call hdifft_unified(kk, WORKN_PHI(:,:,:,kk,1), TCUR_UNIFIED(:,:,:,:,1),UCUR_UNIFIED(:,:,:,1), VCUR_UNIFIED(:,:,:,1), this_block)
+               enddo
+
+          !dir$ end offload
+ 
+
+        endif
+
+   endif  !k==1
+
+   do n=1,nt
+     call splitter(WORKN_HOST(:,:,n,k,bid) ,WORKN_PHI(:,:,n,k,1),bid,this_block)
+   enddo
+
+
+   WORKN = WORKN_HOST(:,:,:,k,bid)
 
    FT = FT + WORKN
 
@@ -2014,6 +2203,176 @@
 !EOC
 
  end subroutine tracer_update
+
+ subroutine merger (TCUR , ARRAY , iblock , this_block )
+
+ !-----------INPUT VARAIBLES-----------------------------------! 
+
+ real (r8), dimension(nx_block,ny_block), intent(in) :: TCUR 
+
+ integer (int_kind), intent(in) :: iblock
+
+ type (block), intent(in) ::       &
+      this_block           ! block information for current block
+
+ !-----------OUTPUT VARIABLES----------------------------------!
+
+ real (r8), dimension(nx_block_unified,ny_block_unified), intent(out) :: ARRAY
+
+ !local variables
+
+   integer (int_kind) :: k
+
+   integer (int_kind) :: my_grid_blockno, block_row, &
+   block_col,i_start,j_start,i_end,j_end,ib,ie,jb,je,i_index,j_index
+
+   !logical (log_kind) :: written(164,196,60)
+
+   !integer (int_kind) :: written_byi(164,196,60)
+
+   !integer (int_kind) :: written_byj(164,196,60)
+
+   !integer (int_kind) :: written_byk(164,196,60)
+
+   !integer (int_kind) :: written_by_block(164,196,60)
+  
+   integer (int_kind) :: i,j  
+
+ !-------------------------------------------------------------!
+
+
+         my_grid_blockno = iblock - 1
+
+         block_row = int(my_grid_blockno/2)
+
+         block_col = mod(my_grid_blockno,2)
+
+         i_start = block_col * (nx_block - 4) + 1 + 2
+
+         j_start = block_row * (ny_block - 4) + 1 + 2
+
+         i_end = i_start + (this_block%ie - this_block%ib) 
+
+         j_end = j_start + (this_block%je - this_block%jb)
+
+         ib = this_block%ib
+ 
+         jb = this_block%jb
+
+         ie = this_block%ie 
+
+         je = this_block%je
+
+         if(block_row == 0 ) then
+
+         j_start = 1
+         jb = 1 
+
+         endif
+
+         if(block_row == 1 ) then
+
+         j_start = j_start
+         je = this_block%je + 2
+
+         endif
+ 
+         if(block_col == 0 ) then
+
+         i_start = 1
+         ib = 1  
+
+         endif 
+
+         if(block_col == 1 ) then
+
+         i_start = i_start
+         ie = this_block%ie + 2
+
+         endif
+ 
+
+            j_index = j_start
+             do j=jb,je
+                   i_index = i_start
+                     do i=ib,ie
+
+                       ARRAY(i_index,j_index) = TCUR(i,j)
+
+                       i_index = i_index + 1
+
+
+                      end do
+                j_index = j_index + 1
+            end do
+ 
+ end subroutine merger 
+
+
+
+ subroutine splitter (SPLIT_ARRAY , MERGED_ARRAY , iblock , this_block )
+
+ !-----------INPUT VARAIBLES-----------------------------------! 
+
+ real (r8), dimension(nx_block_unified,ny_block_unified), intent(in) :: MERGED_ARRAY
+
+ integer (int_kind), intent(in) :: iblock
+
+ type (block), intent(in) ::       &
+      this_block           ! block information for current block
+
+ !-----------OUTPUT VARIABLES----------------------------------!
+
+ real (r8), dimension(nx_block,ny_block), intent(out) :: SPLIT_ARRAY
+
+ !local variables
+
+   integer (int_kind) :: k
+
+   integer (int_kind) :: my_grid_blockno, block_row, &
+   block_col,i_start,j_start,i_end,j_end,ib,ie,jb,je,i_index,j_index
+
+   !logical (log_kind) :: written(164,196,60)
+
+   !integer (int_kind) :: written_byi(164,196,60)
+
+   !integer (int_kind) :: written_byj(164,196,60)
+
+   !integer (int_kind) :: written_byk(164,196,60)
+
+   !integer (int_kind) :: written_by_block(164,196,60)
+  
+   integer (int_kind) :: i,j  
+
+ !-------------------------------------------------------------!
+
+
+         my_grid_blockno = iblock - 1
+
+         block_row = int(my_grid_blockno/2)
+
+         block_col = mod(my_grid_blockno,2)
+
+         i_start = block_col * (nx_block - 4) + 1
+
+         j_start = block_row * (ny_block - 4) + 1
+
+         j_index = j_start
+           do j=1,ny_block
+               i_index = i_start
+                 do i=1,nx_block
+
+                     SPLIT_ARRAY(i,j) = MERGED_ARRAY(i_index,j_index)
+                     i_index = i_index + 1
+
+
+                  end do
+               j_index = j_index + 1
+           end do
+
+ 
+ end subroutine splitter 
+
 
 !***********************************************************************
 

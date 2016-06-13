@@ -67,6 +67,7 @@ module ocn_comp_mct
    use step_mod,          only: step
    use time_management
    use registry
+   use omp_lib
 !
 ! !PUBLIC MEMBER FUNCTIONS:
   implicit none
@@ -550,6 +551,8 @@ contains
 
     integer :: lbnum
 
+    real (r8) start_time,end_time
+
 #if (defined _MEMTRACE)
     if(my_task == 0 ) then
        lbnum=1
@@ -628,8 +631,14 @@ contains
 
           call pop_set_coupled_forcing 
        end if
-       
+      
+       !start_time = omp_get_wtime()
+ 
        call step(errorCode)
+
+       !end_time = omp_get_wtime()
+     
+       !print *,"Time at timestep is ", end_time - start_time
 
        if (errorCode /= POP_Success) then
           call POP_ErrorPrint(errorCode)

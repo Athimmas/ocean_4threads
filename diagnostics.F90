@@ -60,6 +60,7 @@
 
 ! !PUBLIC DATA MEMBERS:
 
+   !dir$ attributes offload:mic :: ldiag_cfl
    logical (log_kind), public :: &
       ldiag_global,          &! time to compute global diagnostics
       ldiag_cfl,             &! time to compute cfl diagnostics
@@ -2591,6 +2592,7 @@
 ! !IROUTINE: cfl_hdiff
 ! !INTERFACE:
 
+ !dir$ attributes offload:mic :: cfl_hdiff
  subroutine cfl_hdiff(k,iblock,HDIFFCFL,t_or_u,this_block)
 
 ! !DESCRIPTION:

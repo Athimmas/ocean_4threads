@@ -39,8 +39,9 @@
    integer (int_kind) ::  &
       registry_failure_count, &
       registry_size
- 
-   character (char_len), dimension (max_registry_size) ::  &
+
+   !dir$ attributes offload:mic :: registry_storage
+   character (char_len), dimension (max_registry_size), public ::  &
       registry_storage
  
 !EOC
@@ -75,7 +76,7 @@
  
  end subroutine init_registry
 
- 
+ !dir$ attributes offload:mic :: registry_match 
  function registry_match (string)
 
 !-----------------------------------------------------------------------
@@ -122,7 +123,7 @@
      registry_failure_count = 0
  end subroutine reset_registry_failure_count
  
- 
+ !dir$ attributes offload:mic :: register_string 
  subroutine register_string (string)
 
 !-----------------------------------------------------------------------
